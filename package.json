@@ -30,7 +30,8 @@
   "bin": {
     "codex-wechat-bridge": "bin/codex-wechat-bridge.mjs",
     "codex-wechat-setup": "bin/codex-wechat-setup.mjs",
-    "codex-wechat-doctor": "bin/codex-wechat-doctor.mjs"
+    "codex-wechat-doctor": "bin/codex-wechat-doctor.mjs",
+    "codex-wechat-enqueue": "bin/codex-wechat-enqueue.mjs"
   },
   "scripts": {
     "clean": "node -e \"require('node:fs').rmSync('dist', { recursive: true, force: true })\"",
@@ -42,6 +43,7 @@
     "quality": "eslint bin src && tsc -p tsconfig.typecheck.src.json --noEmit --pretty false && node -e \"require('node:fs').rmSync('dist', { recursive: true, force: true })\" && tsc -p tsconfig.build.json",
     "setup": "node --no-warnings --experimental-strip-types src/wechat/setup.ts",
     "bridge": "node --no-warnings --experimental-strip-types src/cli/main.ts",
+    "enqueue": "node --no-warnings --experimental-strip-types src/cli/enqueue.ts",
     "doctor": "node --no-warnings --experimental-strip-types src/cli/doctor.ts",
     "smoke:codex": "node --no-warnings --experimental-strip-types src/cli/smoke-codex.ts"
   },

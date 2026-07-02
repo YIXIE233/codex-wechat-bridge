@@ -22,13 +22,13 @@ export type ServiceState = {
 export class StateStore {
   private state: ServiceState;
 
-  constructor(cwd: string) {
+  constructor(cwd: string, authorizedUserId?: string) {
     ensureChannelDataDir();
     const existing = readJson<ServiceState>(SERVICE_STATE_FILE);
     this.state = {
       instanceId: `${process.pid}-${Date.now()}`,
       cwd,
-      authorizedUserId: existing?.authorizedUserId,
+      authorizedUserId: authorizedUserId?.trim() || existing?.authorizedUserId,
       currentThreadId: existing?.currentThreadId,
       ignoredBacklogCount: 0,
       startedAt: new Date().toISOString(),

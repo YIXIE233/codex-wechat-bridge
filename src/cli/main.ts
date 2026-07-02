@@ -7,6 +7,7 @@ type CliOptions = {
   profile?: string;
   approvalPolicy?: string;
   sandbox?: string;
+  authorizedUserId?: string;
 };
 
 function parseArgs(argv: string[]): CliOptions {
@@ -55,6 +56,13 @@ function parseArgs(argv: string[]): CliOptions {
         options.sandbox = next;
         i += 1;
         break;
+      case "--authorized-user":
+        if (!next) {
+          throw new Error("--authorized-user requires a value");
+        }
+        options.authorizedUserId = next;
+        i += 1;
+        break;
       case "--help":
       case "-h":
         printHelp();
@@ -68,7 +76,7 @@ function parseArgs(argv: string[]): CliOptions {
 }
 
 function printHelp(): void {
-  console.log(`Usage: codex-wechat-bridge [--cwd <path>] [--codex <command>] [--profile <name>] [--approval-policy <policy>] [--sandbox <mode>]
+  console.log(`Usage: codex-wechat-bridge [--cwd <path>] [--codex <command>] [--profile <name>] [--approval-policy <policy>] [--sandbox <mode>] [--authorized-user <wechat-user-id>]
 
 Runs a single Codex app-server backed WeChat bridge.`);
 }

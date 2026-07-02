@@ -49,7 +49,20 @@ codex-wechat-bridge --cwd /path/to/workspace
 --profile <name>             Codex profile
 --approval-policy <policy>   默认 on-request
 --sandbox <mode>             默认 workspace-write
+--authorized-user <id>       可选，预设唯一可交互/接收自动化结果的微信用户
 ```
+
+## 自动唤醒固定 thread
+
+`codex-wechat-enqueue` 会把一条 prompt 写入本地队列。正在运行的
+`codex-wechat-bridge` 会在同一个 Codex thread 里执行它，并把最终回复发回微信。
+
+```bash
+codex-wechat-enqueue --file /path/to/daily-prompt.md --recipient <wechat-user-id>
+```
+
+这等价于 Codex App 自动化的核心逻辑：定时器不自己做业务，只负责在固定
+workspace / fixed thread 里投递一条用户消息，后续仍由 Codex 完成。
 
 ## 微信侧基础命令
 

@@ -29,6 +29,7 @@ export const INBOUND_MESSAGE_CLAIMS_DIR = path.join(
 );
 export const INBOUND_ATTACHMENTS_DIR = path.join(CHANNEL_DATA_DIR, "inbound-attachments");
 export const CODEX_APP_SERVER_DIR = path.join(CHANNEL_DATA_DIR, "codex-app-server");
+export const TURN_QUEUE_DIR = path.join(CHANNEL_DATA_DIR, "turn-queue");
 
 const LOG_MAX_BYTES = 5 * 1024 * 1024;
 
@@ -37,6 +38,7 @@ export function ensureChannelDataDir(): void {
   fs.mkdirSync(INBOUND_MESSAGE_CLAIMS_DIR, { recursive: true });
   fs.mkdirSync(INBOUND_ATTACHMENTS_DIR, { recursive: true });
   fs.mkdirSync(CODEX_APP_SERVER_DIR, { recursive: true });
+  fs.mkdirSync(TURN_QUEUE_DIR, { recursive: true });
 }
 
 export function appendBoundedLog(filePath: string, line: string): void {

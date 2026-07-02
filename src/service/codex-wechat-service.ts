@@ -9,6 +9,7 @@ import {
 } from "../wechat/wechat-transport.ts";
 import { ensureWechatCredentials } from "../wechat/setup.ts";
 import { StateStore } from "./state-store.ts";
+import { TurnQueue } from "./turn-queue.ts";
 
 export type CodexWechatServiceOptions = {
   cwd: string;
@@ -16,11 +17,13 @@ export type CodexWechatServiceOptions = {
   profile?: string;
   approvalPolicy?: string;
   sandbox?: string;
+  authorizedUserId?: string;
 };
 
 export class CodexWechatService {
   private readonly options: CodexWechatServiceOptions;
   private readonly state: StateStore;
+  private readonly queue = new TurnQueue();
   private readonly wechat: WeChatTransport;
   private readonly appServer: CodexAppServerProcess;
   private readonly rpc = new CodexRpcClient();
@@ -29,7 +32,7 @@ export class CodexWechatService {
 
   constructor(options: CodexWechatServiceOptions) {
     this.options = options;
-    this.state = new StateStore(options.cwd);
+    this.state = new StateStore(options.cwd, options.authorizedUserId);
     this.wechat = new WeChatTransport({
       log: (message) => this.state.log(message),
       logError: (message) => this.state.log(`ERROR ${message}`),
@@ -66,6 +69,7 @@ export class CodexWechatService {
     process.once("SIGTERM", () => void this.stop());
 
     this.state.log(`codex-wechat-bridge started cwd=${this.options.cwd}`);
+    await this.processQueuedTurn();
     await this.loop();
   }
 
@@ -83,6 +87,7 @@ export class CodexWechatService {
     const minCreatedAtMs = Date.now();
     while (!this.stopping) {
       try {
+        await this.processQueuedTurn();
         const result = await this.wechat.pollMessages({
           timeoutMs: DEFAULT_LONG_POLL_TIMEOUT_MS,
           minCreatedAtMs,
@@ -91,6 +96,7 @@ export class CodexWechatService {
         for (const message of result.messages) {
           await this.handleWechatMessage(message);
         }
+        await this.processQueuedTurn();
       } catch (error) {
         this.state.log(`poll error: ${error instanceof Error ? error.message : String(error)}`);
         await delay(3_000);
@@ -116,6 +122,30 @@ export class CodexWechatService {
     } catch (error) {
       await this.wechat.sendText(message.senderId, error instanceof Error ? error.message : String(error));
     }
+  }
+
+  private async processQueuedTurn(): Promise<void> {
+    const codex = this.requireCodex();
+    if (codex.getActiveTurn()) {
+      return;
+    }
+
+    const item = this.queue.peek();
+    if (!item) {
+      return;
+    }
+
+    if (item.recipientId) {
+      this.state.setAuthorizedUser(item.recipientId);
+    }
+    if (!this.state.get().authorizedUserId) {
+      this.state.log(`queued turn ${item.id} waiting for authorized user`);
+      return;
+    }
+
+    await codex.startTurn(item.text);
+    this.queue.complete(item.id);
+    this.state.log(`queued turn started ${item.id}`);
   }
 
   private async handleBridgeCommand(senderId: string, text: string): Promise<boolean> {
