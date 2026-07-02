@@ -288,7 +288,12 @@ function extractTurnId(params: Record<string, unknown>): string | null {
 }
 
 function extractFinalText(item: unknown): string | null {
-  if (!isRecord(item) || item.type !== "agentMessage" || item.phase !== "final_answer") {
+  if (!isRecord(item) || item.type !== "agentMessage") {
+    return null;
+  }
+
+  const phase = item.phase;
+  if (phase !== undefined && phase !== null && phase !== "final_answer") {
     return null;
   }
   if (typeof item.text === "string") {
