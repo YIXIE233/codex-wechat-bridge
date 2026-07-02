@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 
 const BIN_DIR = path.dirname(fileURLToPath(import.meta.url));
 const PROJECT_DIR = path.resolve(BIN_DIR, "..");
-const MIN_NODE_MAJOR = 24;
+const MIN_NODE_MAJOR = 22;
 
 function ensureSupportedNodeVersion() {
   if (process.env.CODEX_WECHAT_BRIDGE_SKIP_NODE_CHECK === "1") {

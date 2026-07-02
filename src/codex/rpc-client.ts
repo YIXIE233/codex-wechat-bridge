@@ -44,7 +44,7 @@ export class CodexRpcClient {
       | (new (url: string, options?: { headers?: Record<string, string> }) => WebSocketLike)
       | undefined;
     if (!WebSocketCtor) {
-      throw new Error("Global WebSocket is unavailable. Use Node.js 24+.");
+      throw new Error("Global WebSocket is unavailable. Use Node.js 22+.");
     }
 
     const socket = await new Promise<WebSocketLike>((resolve, reject) => {
