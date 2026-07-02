@@ -23,18 +23,14 @@ const nodeGlobals = {
 export default tseslint.config(
   {
     ignores: [
-      ".claude/**",
-      ".codex-app-schema/**",
-      ".codex-app-ts/**",
       "dist/**",
       "node_modules/**",
-      "plan/**",
     ],
   },
   js.configs.recommended,
   ...tseslint.configs.recommended,
   {
-    files: ["bin/**/*.mjs", "src/**/*.ts", "test/**/*.ts"],
+    files: ["bin/**/*.mjs", "src/**/*.ts"],
     languageOptions: {
       ecmaVersion: "latest",
       sourceType: "module",

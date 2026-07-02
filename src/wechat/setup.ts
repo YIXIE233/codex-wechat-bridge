@@ -1,10 +1,10 @@
 #!/usr/bin/env bun
 /**
- * CLI WeChat Bridge setup.
+ * Codex WeChat Bridge setup.
  *
  * Installed bridge commands run this automatically on first use.
  * To force a relogin manually:
- *   wechat-setup
+ *   codex-wechat-setup
  */
 
 import crypto from "node:crypto";
@@ -17,7 +17,6 @@ import {
   CREDENTIALS_FILE,
   DEFAULT_BASE_URL,
   ensureChannelDataDir,
-  migrateLegacyChannelFiles,
   SYNC_BUF_FILE,
 } from "./channel-config.ts";
 import { isWechatSyncSessionTimeout } from "./wechat-transport.ts";
@@ -239,18 +238,10 @@ function saveCredentials(account: StoredAccount): void {
 function printPostLoginHelp(log: (message: string) => void): void {
   log("This WeChat account is now authorized for the bridge.");
   log("");
-  log("Start from any project directory with one of:");
-  log("  wechat-codex-start");
-  log("  wechat-claude-start");
-  log("  wechat-opencode-start");
-  log("  wechat-bridge-shell");
+  log("Start the Codex bridge from a project directory with:");
+  log("  codex-wechat-bridge --cwd <path>");
   log("");
-  log("Manual two-terminal mode is also available:");
-  log("  wechat-bridge-codex  +  wechat-codex");
-  log("  wechat-bridge-claude +  wechat-claude");
-  log("  wechat-bridge-opencode + wechat-opencode");
-  log("");
-  log("Run wechat-setup again any time you need to refresh the login.");
+  log("Run codex-wechat-setup again any time you need to refresh the login.");
 }
 
 export async function runWechatLogin(
@@ -323,7 +314,6 @@ export async function ensureWechatCredentials(
   options: EnsureWechatCredentialsOptions = {},
 ): Promise<StoredAccount> {
   const log = options.log ?? ((message: string) => console.log(message));
-  migrateLegacyChannelFiles(log);
 
   const existing = loadExistingCredentials();
   const loginReason = getWechatLoginRequiredReason(existing, {
@@ -350,8 +340,6 @@ export async function ensureWechatCredentials(
 }
 
 async function main() {
-  migrateLegacyChannelFiles((message) => console.log(message));
-
   const existing = loadExistingCredentials();
   if (existing) {
     console.log(`Found saved account: ${existing.accountId}`);

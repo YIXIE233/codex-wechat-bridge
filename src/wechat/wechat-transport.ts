@@ -9,7 +9,6 @@ import {
   ensureChannelDataDir,
   INBOUND_ATTACHMENTS_DIR,
   INBOUND_MESSAGE_CLAIMS_DIR,
-  migrateLegacyChannelFiles,
   SYNC_BUF_FILE,
 } from "./channel-config.ts";
 
@@ -33,14 +32,11 @@ const MSG_ITEM_TEXT = 1;
 const MSG_ITEM_IMAGE = 2;
 const MSG_ITEM_VOICE = 3;
 const MSG_ITEM_FILE = 4;
-const MSG_ITEM_VIDEO = 5;
 
 const MSG_STATE_FINISH = 2;
 
 const UPLOAD_MEDIA_TYPE_IMAGE = 1;
-const UPLOAD_MEDIA_TYPE_VIDEO = 2;
 const UPLOAD_MEDIA_TYPE_FILE = 3;
-const UPLOAD_MEDIA_TYPE_VOICE = 4;
 
 export type AccountData = {
   token: string;
@@ -186,12 +182,7 @@ type SendFileOptions = {
   title?: string;
 };
 
-type SendVideoOptions = {
-  recipientId?: string;
-  title?: string;
-};
-
-type UploadLabel = "image" | "file" | "voice" | "video";
+type UploadLabel = "image" | "file";
 
 type ResolvedRecipient = {
   account: AccountData;
@@ -256,15 +247,11 @@ export function isWechatContextTokenStaleError(
 const DEFAULT_MEDIA_UPLOAD_LIMIT_MB: Record<UploadLabel, number> = {
   image: 20,
   file: 50,
-  voice: 20,
-  video: 100,
 };
 
 const MEDIA_UPLOAD_LIMIT_ENV_KEYS: Record<UploadLabel, string> = {
   image: "WECHAT_MAX_IMAGE_MB",
   file: "WECHAT_MAX_FILE_MB",
-  voice: "WECHAT_MAX_VOICE_MB",
-  video: "WECHAT_MAX_VIDEO_MB",
 };
 
 const DEFAULT_MEDIA_INBOUND_LIMIT_MB: Record<InboundWechatAttachmentKind, number> = {
@@ -1227,7 +1214,6 @@ export class WeChatTransport {
 
   constructor(logger: TransportLogger) {
     this.logger = logger;
-    migrateLegacyChannelFiles((message) => this.logger.log(message));
     this.contextTokenCache = new Map<string, string>(
       Object.entries(readJsonFile<ContextTokenState>(CONTEXT_CACHE_FILE) ?? {}),
     );
@@ -1253,8 +1239,6 @@ export class WeChatTransport {
       `cached_context_count: ${this.contextTokenCache.size}`,
       `max_image_mb: ${resolveMediaUploadLimitBytes("image") / BYTES_PER_MB}`,
       `max_file_mb: ${resolveMediaUploadLimitBytes("file") / BYTES_PER_MB}`,
-      `max_voice_mb: ${resolveMediaUploadLimitBytes("voice") / BYTES_PER_MB}`,
-      `max_video_mb: ${resolveMediaUploadLimitBytes("video") / BYTES_PER_MB}`,
       `max_inbound_image_mb: ${resolveInboundMediaDownloadLimitBytes("image") / BYTES_PER_MB}`,
       `max_inbound_file_mb: ${resolveInboundMediaDownloadLimitBytes("file") / BYTES_PER_MB}`,
       `account_id: ${account?.accountId ?? "(none)"}`,
@@ -1516,70 +1500,6 @@ export class WeChatTransport {
             aes_key: encodeMessageAesKey(upload.aeskey),
             encrypt_type: 1,
           },
-        },
-      },
-    ]);
-
-    return resolved.recipientId;
-  }
-
-  async sendVoice(voicePath: string, recipientId?: string): Promise<string> {
-    const resolved = this.resolveRecipient(recipientId);
-    const upload = await this.prepareUpload(
-      resolved.account,
-      resolved.recipientId,
-      voicePath,
-      UPLOAD_MEDIA_TYPE_VOICE,
-      "voice",
-    );
-
-    await this.sendMessage(resolved.account, resolved.recipientId, resolved.contextToken, [
-      {
-        type: MSG_ITEM_VOICE,
-        voice_item: {
-          media: {
-            encrypt_query_param: upload.downloadParam,
-            aes_key: encodeMessageAesKey(upload.aeskey),
-            encrypt_type: 1,
-          },
-        },
-      },
-    ]);
-
-    return resolved.recipientId;
-  }
-
-  async sendVideo(videoPath: string, options: SendVideoOptions = {}): Promise<string> {
-    const resolved = this.resolveRecipient(options.recipientId);
-    const title = options.title?.trim();
-
-    if (title) {
-      await this.sendTextWithContextToken(
-        resolved.account,
-        resolved.recipientId,
-        title,
-        resolved.contextToken,
-      );
-    }
-
-    const upload = await this.prepareUpload(
-      resolved.account,
-      resolved.recipientId,
-      videoPath,
-      UPLOAD_MEDIA_TYPE_VIDEO,
-      "video",
-    );
-
-    await this.sendMessage(resolved.account, resolved.recipientId, resolved.contextToken, [
-      {
-        type: MSG_ITEM_VIDEO,
-        video_item: {
-          media: {
-            encrypt_query_param: upload.downloadParam,
-            aes_key: encodeMessageAesKey(upload.aeskey),
-            encrypt_type: 1,
-          },
-          video_size: upload.filesize,
         },
       },
     ]);
