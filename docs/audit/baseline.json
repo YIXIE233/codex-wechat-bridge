@@ -1,0 +1,12 @@
+{
+  "audit_date": "2026-07-07",
+  "upstream_repo": "https://github.com/UNLINEARITY/CLI-WeChat-Bridge.git",
+  "upstream_branch": "origin/main",
+  "upstream_commit": "2f1ba83b59c86f30afdbafdbb6212f8692a59010",
+  "upstream_commit_short": "2f1ba83",
+  "upstream_subject": "fix(bridge): resolve WeChat attachment paths platform-independently",
+  "upstream_describe": "2f1ba83",
+  "v4_commit": "45cc78091de6f20274c184c334b7a6e80b9ebeeb",
+  "v4_commit_short": "45cc780",
+  "upstream_package_version": "1.1.1"
+}
