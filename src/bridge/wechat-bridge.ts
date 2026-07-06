@@ -53,6 +53,10 @@ import {
   type InboundWechatMessage,
 } from "../wechat/wechat-transport.ts";
 import {
+  checkForUpdate,
+  formatUpdateMessage,
+} from "../utils/version-checker.ts";
+import {
   formatBindCommandUsage,
   formatBindingsListMessage,
   isBindCommandPrefix,
@@ -371,6 +375,18 @@ async function main(): Promise<void> {
     throw new Error("Saved WeChat credentials are missing userId.");
   }
   const transport = new WeChatTransport({ log, logError });
+
+  const updateCheckTimer = setTimeout(async () => {
+    try {
+      const versionInfo = await checkForUpdate();
+      if (versionInfo?.hasUpdate) {
+        log(formatUpdateMessage(versionInfo));
+      }
+    } catch {
+      // Update checks are best-effort and must not affect bridge startup.
+    }
+  }, 3000);
+  updateCheckTimer.unref?.();
 
   const stateStore = new BridgeStateStore({
     ...options,
