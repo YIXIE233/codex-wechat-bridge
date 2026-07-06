@@ -9,6 +9,7 @@ import {
 import { delay } from "../codex/codex-runtime-shared.ts";
 import { BridgeController } from "./bridge-controller.ts";
 import { forwardWechatFinalReply } from "./bridge-final-reply.ts";
+import { initLocaleFromEnv } from "../i18n/index.ts";
 import { ensureWechatCredentials } from "../wechat/setup.ts";
 import { BridgeStateStore } from "./bridge-state.ts";
 import type {
@@ -51,6 +52,17 @@ import {
   isWechatContextTokenStaleError,
   type InboundWechatMessage,
 } from "../wechat/wechat-transport.ts";
+import {
+  formatBindCommandUsage,
+  formatBindingsListMessage,
+  isBindCommandPrefix,
+  listBindings,
+  loadEmojiBindings,
+  parseEmojiBindingsCommand,
+  removeBinding,
+  resolveEmojiCommand,
+  setBinding,
+} from "../wechat/emoji-bindings.ts";
 
 type BridgeCliOptions = {
   command: string;
@@ -348,6 +360,7 @@ function printUsageAndExit(): never {
 }
 
 async function main(): Promise<void> {
+  initLocaleFromEnv();
   const options = parseCliArgs(process.argv.slice(2));
   const credentials = await ensureWechatCredentials({
     requireUserId: true,
@@ -728,10 +741,16 @@ async function main(): Promise<void> {
       log(`Profile: ${options.profile}`);
     }
     log(`Authorized WeChat user: ${credentials.userId}`);
+    loadEmojiBindings();
     const welcomeText = [
       "Codex WeChat bridge is ready.",
-      `cwd: ${options.cwd}`,
+      `CWD: ${options.cwd}`,
+      "",
+      "Commands: /stop, /confirm, /deny, /status, /new, /reset",
+      formatBindingsListMessage(listBindings()),
+      "",
       "Send a message here to forward it to Codex.",
+      'Use "wechat-codex" in this directory for native Codex TUI commands such as /resume.',
     ].join("\n");
     await queueWechatMessage(credentials.userId, welcomeText);
 
@@ -1150,9 +1169,7 @@ async function handleInboundMessage(params: {
   outputBatcher: OutputBatcher;
   deferInboundMessage: (message: InboundWechatMessage) => Promise<void>;
 }): Promise<ActiveTask | null> {
-  const {
-    message,
-  } = params;
+  let { message } = params;
   const {
     options,
     stateStore,
@@ -1168,6 +1185,41 @@ async function handleInboundMessage(params: {
       message.senderId,
       "Unauthorized. This bridge only accepts messages from the configured WeChat owner.",
     );
+    return null;
+  }
+
+  const emojiMatch = resolveEmojiCommand(message.text);
+  if (emojiMatch) {
+    const rewritten = emojiMatch.remainder
+      ? `${emojiMatch.command} ${emojiMatch.remainder}`
+      : emojiMatch.command;
+    message = { ...message, text: rewritten };
+  }
+
+  const bindingsCmd = parseEmojiBindingsCommand(message.text);
+  if (bindingsCmd) {
+    switch (bindingsCmd.type) {
+      case "list":
+        await queueWechatMessage(message.senderId, formatBindingsListMessage(listBindings()));
+        break;
+      case "bind":
+        setBinding(bindingsCmd.emoji, bindingsCmd.command);
+        await queueWechatMessage(message.senderId, `Bound ${bindingsCmd.emoji} → ${bindingsCmd.command}`);
+        break;
+      case "unbind": {
+        const removed = removeBinding(bindingsCmd.emoji);
+        await queueWechatMessage(
+          message.senderId,
+          removed ? `Unbound ${bindingsCmd.emoji}` : `No binding found for ${bindingsCmd.emoji}`,
+        );
+        break;
+      }
+    }
+    return null;
+  }
+
+  if (isBindCommandPrefix(message.text)) {
+    await queueWechatMessage(message.senderId, formatBindCommandUsage());
     return null;
   }
 
