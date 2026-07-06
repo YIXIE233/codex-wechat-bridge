@@ -9,6 +9,7 @@ import {
 import { delay } from "../codex/codex-runtime-shared.ts";
 import { BridgeController } from "./bridge-controller.ts";
 import { forwardWechatFinalReply } from "./bridge-final-reply.ts";
+import { reapPeerBridgeProcesses } from "./bridge-process-reaper.ts";
 import { initLocaleFromEnv } from "../i18n/index.ts";
 import { ensureWechatCredentials } from "../wechat/setup.ts";
 import { BridgeStateStore } from "./bridge-state.ts";
@@ -397,6 +398,12 @@ async function main(): Promise<void> {
     ...options,
     authorizedUserId: credentials.userId,
   });
+  const reapedPeerPids = await reapPeerBridgeProcesses({
+    logger: (message) => stateStore.appendLog(message),
+  });
+  if (reapedPeerPids.length > 0) {
+    log(`Reaped ${reapedPeerPids.length} peer bridge process(es): ${reapedPeerPids.join(", ")}`);
+  }
 
   let lockRehydratedLogged = false;
   const ensureRuntimeOwnership = (): boolean => {
