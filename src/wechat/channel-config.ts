@@ -54,6 +54,7 @@ export function appendBoundedLog(filePath: string, line: string): void {
   fs.appendFileSync(filePath, line);
 }
 export const BRIDGE_LOCK_FILE = path.join(CHANNEL_DATA_DIR, "bridge.lock.json");
+export const DAEMON_ENDPOINT_FILE = path.join(CHANNEL_DATA_DIR, "daemon-endpoint.json");
 export const CODEX_PANEL_ENDPOINT_FILE = path.join(
   CHANNEL_DATA_DIR,
   "codex-panel-endpoint.json",

@@ -31,6 +31,7 @@
   "bin": {
     "codex-wechat-bridge": "bin/codex-wechat-bridge.mjs",
     "codex-wechat-check-update": "bin/codex-wechat-check-update.mjs",
+    "codex-wechat-daemon": "bin/codex-wechat-daemon.mjs",
     "codex-wechat-doctor": "bin/codex-wechat-doctor.mjs",
     "codex-wechat-mcp": "bin/codex-wechat-mcp.mjs",
     "codex-wechat-setup": "bin/codex-wechat-setup.mjs",
@@ -52,6 +53,7 @@
     "setup": "node --no-warnings --experimental-strip-types src/wechat/setup.ts",
     "bridge": "node --no-warnings --experimental-strip-types src/bridge/wechat-bridge.ts",
     "check-update": "node --no-warnings --experimental-strip-types src/commands/check-update.ts",
+    "daemon": "node --no-warnings --experimental-strip-types src/daemon/codex-daemon.ts",
     "doctor": "node --no-warnings --experimental-strip-types src/utils/doctor.ts",
     "mcp": "node --no-warnings --experimental-strip-types src/wechat/wechat-mcp.ts",
     "codex:start": "node --no-warnings --experimental-strip-types src/codex/codex-start.ts",
