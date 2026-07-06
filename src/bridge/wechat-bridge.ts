@@ -365,6 +365,11 @@ function printUsageAndExit(): never {
 
 async function main(): Promise<void> {
   initLocaleFromEnv();
+  if (process.argv.includes("--doctor")) {
+    const { runDoctorCheck } = await import("../utils/doctor.ts");
+    await runDoctorCheck(process.argv.slice(2));
+    process.exit(0);
+  }
   const options = parseCliArgs(process.argv.slice(2));
   const credentials = await ensureWechatCredentials({
     requireUserId: true,
