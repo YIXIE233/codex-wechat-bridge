@@ -1,4 +1,3 @@
-import type { BridgeAdapterKind } from "./bridge-types.ts";
 import {
   formatFinalReplyMessage,
   parseWechatFinalReply,
@@ -14,22 +13,17 @@ export type WechatFinalReplySender = {
   sendVideo: (videoPath: string) => Promise<unknown>;
 };
 
-export const OPENCODE_EMPTY_VISIBLE_REPLY_MESSAGE =
-  "OpenCode 没有产生可发送到微信的可见回复。请查看本地终端输出，或重试这条消息。";
-
 export async function forwardWechatFinalReply(params: {
-  adapter: BridgeAdapterKind;
   rawText: string;
   sender: WechatFinalReplySender;
   onEmptyVisibleReply?: (details: {
-    adapter: BridgeAdapterKind;
     rawVisibleText: string;
   }) => void;
 }): Promise<void> {
-  const { adapter, rawText, sender, onEmptyVisibleReply } = params;
+  const { rawText, sender, onEmptyVisibleReply } = params;
   const parsed = parseWechatFinalReply(rawText);
-  const sanitizedText = sanitizeWechatFinalReplyText(adapter, parsed.visibleText);
-  const visibleText = formatFinalReplyMessage(adapter, sanitizedText).trim();
+  const sanitizedText = sanitizeWechatFinalReplyText(parsed.visibleText);
+  const visibleText = formatFinalReplyMessage(sanitizedText).trim();
 
   if (visibleText) {
     // Send long replies in bounded chunks: a single oversized sendmessage call
@@ -40,15 +34,8 @@ export async function forwardWechatFinalReply(params: {
         return;
       }
     }
-  } else if (adapter === "opencode" && parsed.visibleText.trim()) {
-    onEmptyVisibleReply?.({
-      adapter,
-      rawVisibleText: parsed.visibleText,
-    });
-    const sent = await sender.sendText(OPENCODE_EMPTY_VISIBLE_REPLY_MESSAGE);
-    if (sent === false) {
-      return;
-    }
+  } else if (parsed.visibleText.trim()) {
+    onEmptyVisibleReply?.({ rawVisibleText: parsed.visibleText });
   }
 
   for (const attachment of parsed.attachments) {
@@ -76,3 +63,4 @@ export async function forwardWechatFinalReply(params: {
     }
   }
 }
+

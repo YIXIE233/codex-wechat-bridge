@@ -1,4 +1,4 @@
-export type BridgeAdapterKind = "codex" | "claude" | "opencode" | "shell";
+export type CodexRuntimeKind = "codex";
 export type BridgeLifecycleMode = "persistent" | "companion_bound";
 export type BridgeSessionStartMode = "restore" | "new";
 export type BridgeTurnOrigin = "wechat" | "local";
@@ -23,7 +23,7 @@ export type BridgeWorkerStatus =
 
 export type BridgeNoticeLevel = "info" | "warning";
 
-export type ApprovalSource = "shell" | "cli";
+export type ApprovalSource = "cli";
 
 export type ApprovalRequest = {
   source: ApprovalSource;
@@ -77,7 +77,6 @@ export type BridgeResumeThreadCandidate = BridgeResumeSessionCandidate;
 
 export type BridgeState = {
   instanceId: string;
-  adapter: BridgeAdapterKind;
   command: string;
   cwd: string;
   profile?: string;
@@ -93,8 +92,8 @@ export type BridgeState = {
   lastActivityAt?: string;
 };
 
-export type BridgeAdapterState = {
-  kind: BridgeAdapterKind;
+export type CodexRuntimeState = {
+  kind: CodexRuntimeKind;
   status: BridgeWorkerStatus;
   pid?: number;
   cwd: string;
@@ -203,13 +202,13 @@ export type BridgeEvent =
     }
   | {
       type: "shutdown_requested";
-      reason: "companion_closed" | "companion_reconnect_timeout";
+      reason: "bridge_shutdown";
       message: string;
       exitCode?: number;
       timestamp: string;
     };
 
-export interface BridgeAdapter {
+export interface CodexRuntime {
   setEventSink(sink: (event: BridgeEvent) => void): void;
   start(): Promise<void>;
   sendInput(text: string): Promise<void>;
@@ -222,5 +221,5 @@ export interface BridgeAdapter {
   resolveAllApprovals(action: "confirm" | "deny"): Promise<number>;
   submitUserInput(answers: Record<string, string[]>): Promise<boolean>;
   dispose(): Promise<void>;
-  getState(): BridgeAdapterState;
+  getState(): CodexRuntimeState;
 }

@@ -4,14 +4,9 @@
 //
 // node-pty ships its prebuilt `spawn-helper` binaries with mode 0644 (no exec
 // bit) in the published tarball. On macOS/Linux that makes `posix_spawnp`
-// fail when node-pty tries to fork a PTY, so the bridge silently drops to the
-// non-PTY fallback. The Claude adapter relies on PTY interactive mode, so the
-// fallback surfaces to users as:
-//
-//   Error: Input must be provided ... when using --print
-//
-// Restoring the exec bit after install fixes PTY spawning. This runs on
-// postinstall and is idempotent; it never fails the install.
+// fail when node-pty tries to fork a PTY. Restoring the exec bit after install
+// fixes PTY spawning. This runs on postinstall and is idempotent; it never
+// fails the install.
 
 import fs from "node:fs";
 import path from "node:path";
@@ -59,15 +54,15 @@ for (const relative of candidates) {
     fixed += 1;
   } catch (error) {
     console.warn(
-      `[cli-wechat-bridge] Could not make node-pty spawn-helper executable: ${helperPath}\n` +
+      `[codex-wechat-bridge] Could not make node-pty spawn-helper executable: ${helperPath}\n` +
         `  ${error instanceof Error ? error.message : String(error)}\n` +
-        "  PTY mode may be unavailable; run --doctor for details.",
+        "  PTY mode may be unavailable.",
     );
   }
 }
 
 if (fixed > 0) {
   console.log(
-    `[cli-wechat-bridge] Restored executable bit on ${fixed} node-pty spawn-helper binary(ies).`,
+    `[codex-wechat-bridge] Restored executable bit on ${fixed} node-pty spawn-helper binary(ies).`,
   );
 }

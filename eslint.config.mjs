@@ -23,7 +23,6 @@ const nodeGlobals = {
 export default tseslint.config(
   {
     ignores: [
-      ".claude/**",
       ".codex-app-schema/**",
       ".codex-app-ts/**",
       "dist/**",

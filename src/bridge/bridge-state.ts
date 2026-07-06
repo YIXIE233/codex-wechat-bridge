@@ -8,7 +8,6 @@ import {
   ensureChannelDataDir,
 } from "../wechat/channel-config.ts";
 import type {
-  BridgeAdapterKind,
   BridgeLifecycleMode,
   BridgeSessionStartMode,
   BridgeState,
@@ -18,7 +17,6 @@ import type {
 import { buildInstanceId } from "./bridge-utils.ts";
 
 type BridgeStateOptions = {
-  adapter: BridgeAdapterKind;
   command: string;
   cwd: string;
   profile?: string;
@@ -31,12 +29,10 @@ export type BridgeLockPayload = {
   pid: number;
   parentPid: number;
   instanceId: string;
-  adapter: BridgeAdapterKind;
   command: string;
   cwd: string;
   startedAt: string;
   lifecycle: BridgeLifecycleMode;
-  legacyLifecycleFallback?: true;
 };
 
 export type BridgeRuntimeOwnership =
@@ -62,14 +58,14 @@ const ORPHAN_LOCK_RECLAIM_POLL_MS = 100;
 export function resolveRestorableSharedSessionId(
   persisted: Partial<BridgeState> | null | undefined,
   options: {
-    adapter: BridgeAdapterKind;
     cwd: string;
   },
 ): string | undefined {
+  const legacyAdapter = (persisted as { adapter?: unknown } | null | undefined)?.adapter;
   if (
     !persisted ||
     persisted.cwd !== options.cwd ||
-    persisted.adapter !== options.adapter
+    (legacyAdapter !== undefined && legacyAdapter !== "codex")
   ) {
     return undefined;
   }
@@ -129,7 +125,6 @@ export function normalizeBridgeLockPayload(value: unknown): BridgeLockPayload | 
   if (
     typeof record.pid !== "number" ||
     typeof record.instanceId !== "string" ||
-    typeof record.adapter !== "string" ||
     typeof record.command !== "string" ||
     typeof record.cwd !== "string" ||
     typeof record.startedAt !== "string"
@@ -137,30 +132,18 @@ export function normalizeBridgeLockPayload(value: unknown): BridgeLockPayload | 
     return null;
   }
 
-  const adapter =
-    record.adapter === "codex" ||
-    record.adapter === "claude" ||
-    record.adapter === "opencode" ||
-    record.adapter === "shell"
-      ? record.adapter
-      : null;
-  if (!adapter) {
+  if (record.adapter !== undefined && record.adapter !== "codex") {
     return null;
   }
-
-  const hasExplicitLifecycle =
-    record.lifecycle === "persistent" || record.lifecycle === "companion_bound";
 
   return {
     pid: record.pid,
     parentPid: typeof record.parentPid === "number" ? record.parentPid : 0,
     instanceId: record.instanceId,
-    adapter,
     command: record.command,
     cwd: record.cwd,
     startedAt: record.startedAt,
     lifecycle: record.lifecycle === "companion_bound" ? "companion_bound" : "persistent",
-    legacyLifecycleFallback: hasExplicitLifecycle ? undefined : true,
   };
 }
 
@@ -179,17 +162,9 @@ export function shouldAutoReclaimBridgeLock(
   lock: BridgeLockPayload,
   isProcessAlive: (pid: number) => boolean = isPidAlive,
 ): boolean {
-  if (
-    lock.lifecycle === "companion_bound" ||
-    (lock.legacyLifecycleFallback === true && lock.adapter === "codex")
-  ) {
-    return lock.parentPid > 1 && !isProcessAlive(lock.parentPid);
-  }
-
-  // For persistent lifecycle (e.g. opencode), reclaim the lock if the
-  // lock-holding process is no longer alive.  This prevents stale locks
-  // from permanently blocking subsequent bridge starts when the process
-  // was force-killed (SIGKILL, Task Manager, OOM, etc.).
+  // Reclaim the lock if the lock-holding process is no longer alive. This
+  // prevents stale locks from permanently blocking subsequent bridge starts
+  // when the process was force-killed (SIGKILL, Task Manager, OOM, etc.).
   return !isProcessAlive(lock.pid);
 }
 
@@ -245,7 +220,7 @@ export function evaluateBridgeRuntimeOwnership(params: {
 
 function buildLockConflictError(lock: BridgeLockPayload): Error {
   return new Error(
-    `Another bridge instance is already running (pid=${lock.pid}, instanceId=${lock.instanceId}, adapter=${lock.adapter}, cwd=${lock.cwd}, startedAt=${lock.startedAt}, lifecycle=${lock.lifecycle}). Stop it before starting a new bridge.`,
+    `Another bridge instance is already running (pid=${lock.pid}, instanceId=${lock.instanceId}, cwd=${lock.cwd}, startedAt=${lock.startedAt}, lifecycle=${lock.lifecycle}). Stop it before starting a new bridge.`,
   );
 }
 
@@ -277,7 +252,6 @@ export class BridgeStateStore {
       pid: process.pid,
       parentPid: process.ppid,
       instanceId: this.instanceId,
-      adapter: options.adapter,
       command: options.command,
       cwd: options.cwd,
       startedAt: new Date(this.bridgeStartedAtMs).toISOString(),
@@ -292,23 +266,10 @@ export class BridgeStateStore {
       shouldRestoreSessionState ? persisted : null,
       options,
     );
-    const persistedResumeConversationId =
-      shouldRestoreSessionState &&
-      options.adapter === "claude" &&
-      persisted?.cwd === options.cwd &&
-      typeof persisted.resumeConversationId === "string"
-        ? persisted.resumeConversationId
-        : undefined;
-    const persistedTranscriptPath =
-      shouldRestoreSessionState &&
-      options.adapter === "claude" &&
-      persisted?.cwd === options.cwd &&
-      typeof persisted.transcriptPath === "string"
-        ? persisted.transcriptPath
-        : undefined;
+    const persistedResumeConversationId = undefined;
+    const persistedTranscriptPath = undefined;
     this.state = {
       instanceId: this.instanceId,
-      adapter: options.adapter,
       command: options.command,
       cwd: options.cwd,
       profile: options.profile,
@@ -316,8 +277,7 @@ export class BridgeStateStore {
       bridgeStartedAtMs: this.bridgeStartedAtMs,
       ignoredBacklogCount: 0,
       sharedSessionId: persistedSharedSessionId,
-      sharedThreadId:
-        options.adapter === "codex" ? persistedSharedSessionId : undefined,
+      sharedThreadId: persistedSharedSessionId,
       resumeConversationId: persistedResumeConversationId,
       transcriptPath: persistedTranscriptPath,
       lastActivityAt: persisted?.lastActivityAt,
@@ -377,7 +337,7 @@ export class BridgeStateStore {
 
   setSharedSessionId(sessionId: string): void {
     this.state.sharedSessionId = sessionId;
-    this.state.sharedThreadId = this.state.adapter === "codex" ? sessionId : undefined;
+    this.state.sharedThreadId = sessionId;
     this.save();
   }
 
@@ -396,29 +356,6 @@ export class BridgeStateStore {
 
   clearSharedThreadId(): void {
     this.clearSharedSessionId();
-  }
-
-  setClaudeResumeState(resumeConversationId?: string, transcriptPath?: string): void {
-    if (this.state.adapter !== "claude") {
-      return;
-    }
-
-    this.state.resumeConversationId = resumeConversationId || undefined;
-    this.state.transcriptPath = transcriptPath || undefined;
-    this.save();
-  }
-
-  clearClaudeResumeState(): void {
-    if (
-      this.state.adapter !== "claude" ||
-      (!this.state.resumeConversationId && !this.state.transcriptPath)
-    ) {
-      return;
-    }
-
-    this.state.resumeConversationId = undefined;
-    this.state.transcriptPath = undefined;
-    this.save();
   }
 
   appendLog(message: string): void {
@@ -463,22 +400,22 @@ export class BridgeStateStore {
     ) {
       if (shouldAutoReclaimBridgeLock(existing)) {
         this.appendLog(
-          `lock_reclaim_attempt: pid=${existing.pid} instanceId=${existing.instanceId} adapter=${existing.adapter} cwd=${existing.cwd}`,
+          `lock_reclaim_attempt: pid=${existing.pid} instanceId=${existing.instanceId} cwd=${existing.cwd}`,
         );
 
         if (tryTerminateOrphanedBridge(existing)) {
           this.appendLog(
-            `lock_reclaimed: pid=${existing.pid} instanceId=${existing.instanceId} adapter=${existing.adapter} cwd=${existing.cwd}`,
+            `lock_reclaimed: pid=${existing.pid} instanceId=${existing.instanceId} cwd=${existing.cwd}`,
           );
         } else {
           this.appendLog(
-            `lock_reclaim_failed: pid=${existing.pid} instanceId=${existing.instanceId} adapter=${existing.adapter} cwd=${existing.cwd}`,
+            `lock_reclaim_failed: pid=${existing.pid} instanceId=${existing.instanceId} cwd=${existing.cwd}`,
           );
           throw buildLockConflictError(existing);
         }
       } else {
         this.appendLog(
-          `lock_conflict: pid=${existing.pid} instanceId=${existing.instanceId} adapter=${existing.adapter} cwd=${existing.cwd}`,
+          `lock_conflict: pid=${existing.pid} instanceId=${existing.instanceId} cwd=${existing.cwd}`,
         );
         throw buildLockConflictError(existing);
       }

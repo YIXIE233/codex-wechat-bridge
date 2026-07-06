@@ -1,36 +1,34 @@
+import type { CodexRuntime } from "./bridge-types.ts";
 import {
-  clearLocalCompanionEndpoint,
-  readLocalCompanionEndpoint,
-  writeLocalCompanionEndpoint,
-} from "../companion/local-companion-link.ts";
-import type { BridgeAdapter } from "./bridge-types.ts";
-import { hasLocalClientEndpointProvider } from "../runtime/runtime-types.ts";
+  clearLocalClientEndpoint,
+  readLocalClientEndpoint,
+  writeLocalClientEndpoint,
+} from "../codex/local-client-link.ts";
+import { hasLocalClientEndpointProvider } from "../codex/runtime-types.ts";
 
 export class BridgeController {
   private endpointInstanceId: string | null = null;
-  private readonly adapter: BridgeAdapter;
+  private readonly runtime: CodexRuntime;
   private readonly cwd: string;
 
-  constructor(adapter: BridgeAdapter, cwd: string) {
-    this.adapter = adapter;
+  constructor(runtime: CodexRuntime, cwd: string) {
+    this.runtime = runtime;
     this.cwd = cwd;
   }
 
   syncLocalClientEndpoint(): void {
-    if (!hasLocalClientEndpointProvider(this.adapter)) {
+    if (!hasLocalClientEndpointProvider(this.runtime)) {
       return;
     }
 
-    const endpoint = this.adapter.getLocalClientEndpoint();
+    const endpoint = this.runtime.getLocalClientEndpoint();
     if (!endpoint) {
       this.clearLocalClientEndpoint();
       return;
     }
 
-    const existing = readLocalCompanionEndpoint(this.cwd, {
-      adapter: endpoint.kind,
-    });
-    const adapterState = this.adapter.getState();
+    const existing = readLocalClientEndpoint(this.cwd);
+    const runtimeState = this.runtime.getState();
     const nextEndpoint =
       existing?.instanceId === endpoint.instanceId
         ? {
@@ -38,25 +36,23 @@ export class BridgeController {
             companionPid: endpoint.companionPid ?? existing.companionPid,
             companionConnectedAt:
               endpoint.companionConnectedAt ?? existing.companionConnectedAt,
-            companionStatus: adapterState.status,
+            companionStatus: runtimeState.status,
             companionLastStateAt: new Date().toISOString(),
-            companionWorkerPid: adapterState.pid,
+            companionWorkerPid: runtimeState.pid,
           }
         : {
             ...endpoint,
-            companionStatus: adapterState.status,
+            companionStatus: runtimeState.status,
             companionLastStateAt: new Date().toISOString(),
-            companionWorkerPid: adapterState.pid,
+            companionWorkerPid: runtimeState.pid,
           };
 
     this.endpointInstanceId = endpoint.instanceId;
-    writeLocalCompanionEndpoint(nextEndpoint);
+    writeLocalClientEndpoint(nextEndpoint);
   }
 
   clearLocalClientEndpoint(): void {
-    clearLocalCompanionEndpoint(this.cwd, this.endpointInstanceId ?? undefined, {
-      adapter: this.adapter.getState().kind,
-    });
+    clearLocalClientEndpoint(this.cwd, this.endpointInstanceId ?? undefined);
     this.endpointInstanceId = null;
   }
 }

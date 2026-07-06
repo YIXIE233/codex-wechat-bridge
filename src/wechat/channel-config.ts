@@ -2,11 +2,6 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
-import { initLocaleFromEnv } from "../i18n/index.ts";
-
-const MODULE_DIR = path.dirname(fileURLToPath(import.meta.url));
-const PROJECT_DIR = path.resolve(MODULE_DIR, "..", "..");
 
 export const DEFAULT_BASE_URL =
   process.env.WECHAT_ILINK_BASE_URL?.trim() || "https://ilinkai.weixin.qq.com";
@@ -31,7 +26,7 @@ export const CONTEXT_CACHE_FILE = path.join(
 export const BRIDGE_STATE_FILE = path.join(CHANNEL_DATA_DIR, "bridge-state.json");
 export const BRIDGE_LOG_FILE = path.join(CHANNEL_DATA_DIR, "bridge.log");
 
-// Hard cap for bridge.log. Long-running daemons otherwise grow it without bound.
+// Hard cap for bridge.log. Long-running bridges otherwise grow it without bound.
 export const BRIDGE_LOG_MAX_BYTES = 5 * 1024 * 1024; // 5 MiB
 
 /**
@@ -59,7 +54,6 @@ export function appendBoundedLog(filePath: string, line: string): void {
   fs.appendFileSync(filePath, line);
 }
 export const BRIDGE_LOCK_FILE = path.join(CHANNEL_DATA_DIR, "bridge.lock.json");
-export const DAEMON_ENDPOINT_FILE = path.join(CHANNEL_DATA_DIR, "daemon-endpoint.json");
 export const CODEX_PANEL_ENDPOINT_FILE = path.join(
   CHANNEL_DATA_DIR,
   "codex-panel-endpoint.json",
@@ -73,17 +67,12 @@ export const INBOUND_ATTACHMENTS_DIR = path.join(
   CHANNEL_DATA_DIR,
   "inbound-attachments",
 );
-export const EMOJI_BINDINGS_FILE = path.join(CHANNEL_DATA_DIR, "emoji-bindings.json");
-
-initLocaleFromEnv();
 
 export type WorkspaceChannelPaths = {
   workspaceDir: string;
   stateFile: string;
   endpointFile: string;
 };
-
-export type WorkspaceEndpointAdapter = "codex" | "claude" | "opencode" | "shell";
 
 type LegacyChannelSource = {
   dataDir: string;
@@ -101,27 +90,7 @@ type LegacyMigrationItem = {
   kind: "file" | "directory";
 };
 
-const LEGACY_GLOBAL_CHANNEL_DATA_DIR = path.join(
-  os.homedir(),
-  ".claude",
-  "channels",
-  "wechat",
-);
-const LEGACY_REPO_CHANNEL_DATA_DIR = path.join(
-  PROJECT_DIR,
-  "~",
-  ".claude",
-  "channels",
-  "wechat",
-);
-const LEGACY_ENV_CHANNEL_DATA_DIR = process.env.CLAUDE_WECHAT_CHANNEL_DATA_DIR?.trim()
-  ? path.resolve(process.env.CLAUDE_WECHAT_CHANNEL_DATA_DIR.trim())
-  : "";
-const LEGACY_CHANNEL_SOURCE_DIRS = [
-  LEGACY_ENV_CHANNEL_DATA_DIR,
-  LEGACY_GLOBAL_CHANNEL_DATA_DIR,
-  LEGACY_REPO_CHANNEL_DATA_DIR,
-].filter(Boolean);
+const LEGACY_CHANNEL_SOURCE_DIRS: string[] = [];
 const LEGACY_CHANNEL_SOURCES: LegacyChannelSource[] = LEGACY_CHANNEL_SOURCE_DIRS.map((dataDir) => ({
   dataDir,
 }));
@@ -212,14 +181,8 @@ export function getWorkspaceChannelPaths(cwd: string): WorkspaceChannelPaths {
   };
 }
 
-export function getWorkspaceAdapterEndpointFile(
-  cwd: string,
-  adapter: WorkspaceEndpointAdapter,
-): string {
-  return path.join(
-    getWorkspaceChannelPaths(cwd).workspaceDir,
-    `${adapter}-companion-endpoint.json`,
-  );
+export function getWorkspaceCodexEndpointFile(cwd: string): string {
+  return path.join(getWorkspaceChannelPaths(cwd).workspaceDir, "codex-companion-endpoint.json");
 }
 
 export function ensureWorkspaceChannelDir(cwd: string): WorkspaceChannelPaths {

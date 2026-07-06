@@ -2,4 +2,4 @@
 
 import { runJsEntry } from "./_run-entry.mjs";
 
-runJsEntry("dist/companion/codex-remote-client.js");
+runJsEntry("dist/codex/codex-remote-client.js");

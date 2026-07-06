@@ -3,20 +3,17 @@
 import path from "node:path";
 
 import {
-  resolveDefaultAdapterCommand,
-} from "./bridge-adapters.ts";
-import { delay } from "./bridge-adapters.shared.ts";
-import { t } from "../i18n/index.ts";
+  createCodexRuntime,
+  resolveDefaultCodexCommand,
+} from "../codex/codex-runtime.ts";
+import { delay } from "../codex/codex-runtime-shared.ts";
 import { BridgeController } from "./bridge-controller.ts";
 import { forwardWechatFinalReply } from "./bridge-final-reply.ts";
 import { ensureWechatCredentials } from "../wechat/setup.ts";
 import { BridgeStateStore } from "./bridge-state.ts";
-import { reapOrphanedOpencodeProcesses, reapPeerBridgeProcesses } from "./bridge-process-reaper.ts";
-import { createRuntimeHost } from "../runtime/create-runtime-host.ts";
 import type {
   ApprovalRequest,
-  BridgeAdapter,
-  BridgeAdapterKind,
+  CodexRuntime,
   BridgeEvent,
   BridgeLifecycleMode,
   BridgeSessionStartMode,
@@ -30,9 +27,9 @@ import {
   buildWechatInboundPrompt,
   buildOneTimeCode,
   formatApprovalMessage,
+  formatDuration,
   formatPendingApprovalReminder,
   formatPendingUserInputReminder,
-  formatDuration,
   formatMirroredUserInputMessage,
   formatSessionSwitchMessage,
   formatStatusReport,
@@ -54,29 +51,8 @@ import {
   isWechatContextTokenStaleError,
   type InboundWechatMessage,
 } from "../wechat/wechat-transport.ts";
-import {
-  checkForUpdate,
-  formatUpdateMessage,
-} from "../utils/version-checker.ts";
-import {
-  clearDaemonEndpoint,
-  isDaemonEndpointAlive,
-  readDaemonEndpoint,
-} from "../daemon/daemon-link.ts";
-import {
-  formatBindCommandUsage,
-  formatBindingsListMessage,
-  isBindCommandPrefix,
-  listBindings,
-  loadEmojiBindings,
-  parseEmojiBindingsCommand,
-  removeBinding,
-  resolveEmojiCommand,
-  setBinding,
-} from "../daemon/emoji-bindings.ts";
 
 type BridgeCliOptions = {
-  adapter: BridgeAdapterKind;
   command: string;
   cwd: string;
   profile?: string;
@@ -145,50 +121,19 @@ export function formatUserFacingBridgeFatalError(message: string): string {
 }
 
 export function shouldForwardBridgeEventToWechat(
-  adapter: BridgeAdapterKind,
-  eventType: BridgeEvent["type"],
-  options: {
+  _eventType: BridgeEvent["type"],
+  _options: {
     text?: string;
   } = {},
 ): boolean {
-  if (adapter !== "opencode") {
-    return true;
-  }
-
-  switch (eventType) {
-    case "stdout":
-    case "stderr":
-    case "thread_switched":
-      return false;
-    case "notice":
-      return /^OpenCode local draft:\s*/i.test(options.text ?? "");
-    case "mirrored_user_input":
-      return true;
-    default:
-      return true;
-  }
+  return true;
 }
 
 export function formatUserFacingInboundError(params: {
-  adapter: BridgeAdapterKind;
   cwd?: string;
   errorText: string;
-  isUserFacingShellRejection: boolean;
 }): string {
-  const { adapter, cwd, errorText, isUserFacingShellRejection } = params;
-  if (isUserFacingShellRejection) {
-    return errorText;
-  }
-
-  if (
-    adapter === "opencode" &&
-    /opencode companion is not connected/i.test(errorText)
-  ) {
-    return cwd
-      ? `OpenCode companion is not connected for bridge workspace:\n${cwd}\nRun "wechat-opencode" in that directory to reconnect the current local terminal, or run "wechat-bridge-opencode" and then "wechat-opencode" in your target project to replace this bridge.`
-      : 'OpenCode companion is not connected. Start "wechat-opencode" in this directory to reconnect it, then retry.';
-  }
-
+  const { errorText } = params;
   return `Bridge error: ${errorText}`;
 }
 
@@ -272,14 +217,12 @@ function toPendingUserInput(request: UserInputRequest | PendingUserInputRequest)
 }
 
 export function shouldDeferCodexInboundMessage(params: {
-  adapter: BridgeAdapterKind;
   status: BridgeWorkerStatus;
   activeTurnOrigin?: BridgeTurnOrigin;
   hasPendingConfirmation: boolean;
   hasSystemCommand: boolean;
 }): boolean {
   return (
-    params.adapter === "codex" &&
     !params.hasPendingConfirmation &&
     !params.hasSystemCommand &&
     params.activeTurnOrigin === "local" &&
@@ -288,7 +231,6 @@ export function shouldDeferCodexInboundMessage(params: {
 }
 
 export function canDrainDeferredCodexInboundQueue(params: {
-  adapter: BridgeAdapterKind;
   deferredCount: number;
   status: BridgeWorkerStatus;
   activeTurnId?: string;
@@ -298,7 +240,6 @@ export function canDrainDeferredCodexInboundQueue(params: {
   hasActiveTask: boolean;
 }): boolean {
   return (
-    params.adapter === "codex" &&
     params.deferredCount > 0 &&
     !params.hasPendingConfirmation &&
     !params.hasPendingUserInput &&
@@ -322,7 +263,6 @@ export function isRetryableDeferredCodexDrainError(errorText: string): boolean {
 }
 
 export function parseCliArgs(argv: string[]): BridgeCliOptions {
-  let adapter: BridgeAdapterKind | null = null;
   let commandOverride: string | undefined;
   let cwd = process.cwd();
   let profile: string | undefined;
@@ -334,13 +274,6 @@ export function parseCliArgs(argv: string[]): BridgeCliOptions {
     const next = argv[i + 1];
 
     switch (arg) {
-      case "--adapter":
-        if (!next || !["codex", "claude", "opencode", "shell"].includes(next)) {
-          throw new Error(`Invalid adapter: ${next ?? "(missing)"}`);
-        }
-        adapter = next as BridgeAdapterKind;
-        i += 1;
-        break;
       case "--cmd":
         if (!next) {
           throw new Error("--cmd requires a value");
@@ -388,13 +321,8 @@ export function parseCliArgs(argv: string[]): BridgeCliOptions {
     }
   }
 
-  if (!adapter) {
-    throw new Error("Missing required --adapter <codex|claude|opencode|shell>");
-  }
-
-  const defaultCommand = resolveDefaultAdapterCommand(adapter);
+  const defaultCommand = resolveDefaultCodexCommand();
   return {
-    adapter,
     command: commandOverride ?? defaultCommand,
     cwd,
     profile,
@@ -406,17 +334,13 @@ export function parseCliArgs(argv: string[]): BridgeCliOptions {
 function printUsageAndExit(): never {
   process.stdout.write(
     [
-      "Usage: wechat-bridge --adapter <codex|claude|opencode|shell> [--cmd <executable>] [--cwd <path>] [--profile <name-or-path>] [--lifecycle <persistent|companion_bound>] [--session-start-mode <restore|new>]",
+      "Usage: codex-wechat-bridge [--cmd <codex-executable>] [--cwd <path>] [--profile <name-or-path>] [--lifecycle <persistent|companion_bound>] [--session-start-mode <restore|new>]",
       "",
       "Examples:",
-      "  wechat-bridge-codex",
-      "  wechat-bridge-claude --cwd ~/work/my-project",
-      "  wechat-bridge-opencode --cwd ~/work/my-project",
-      "  wechat-bridge-shell --cmd pwsh   # headless shell executor for non-interactive commands/scripts",
-      "  wechat-bridge-shell --cmd bash   # headless shell executor for non-interactive commands/scripts",
-      "  wechat-bridge-codex --lifecycle companion_bound",
-      "  bun run bridge:codex            # repo-local development entrypoint",
-      "  bun run bridge:opencode          # repo-local development entrypoint",
+      "  codex-wechat-bridge",
+      "  codex-wechat-bridge --cwd ~/work/my-project",
+      "  codex-wechat-bridge --cmd codex",
+      "  npm run bridge -- --cwd ~/work/my-project",
       "",
     ].join("\n"),
   );
@@ -424,22 +348,7 @@ function printUsageAndExit(): never {
 }
 
 async function main(): Promise<void> {
-  if (process.argv.includes("--doctor")) {
-    const { runDoctorCheck } = await import("../utils/doctor.ts");
-    await runDoctorCheck(process.argv.slice(2), { mode: "bridge" });
-    process.exit(0);
-  }
   const options = parseCliArgs(process.argv.slice(2));
-  const daemonEndpoint = readDaemonEndpoint();
-  if (daemonEndpoint && await isDaemonEndpointAlive(daemonEndpoint, { timeoutMs: 500 })) {
-    throw new Error(
-      `wechat-daemon is already running (pid=${daemonEndpoint.pid}, cwd=${daemonEndpoint.cwd}). Stop it before starting a standalone bridge.`,
-    );
-  }
-  if (daemonEndpoint) {
-    clearDaemonEndpoint(daemonEndpoint.pid);
-    log(`Cleared stale wechat-daemon endpoint for pid=${daemonEndpoint.pid}.`);
-  }
   const credentials = await ensureWechatCredentials({
     requireUserId: true,
     validateExisting: true,
@@ -450,40 +359,10 @@ async function main(): Promise<void> {
   }
   const transport = new WeChatTransport({ log, logError });
 
-  // 非阻塞地检查更新（不影响启动速度，也避免首次登录时打断二维码输出）
-  // unref：不能让这个延迟检查把 event loop 挂活（如 --doctor 或快速退出场景），
-  // 否则会与强制退出 teardown 竞态。
-  const updateCheckTimer = setTimeout(async () => {
-    try {
-      const versionInfo = await checkForUpdate();
-      if (versionInfo?.hasUpdate) {
-        log(formatUpdateMessage(versionInfo));
-      }
-    } catch (error) {
-      // 静默失败，不影响正常使用
-    }
-  }, 3000); // 延迟3秒，确保不影响启动
-  updateCheckTimer.unref?.();
-
   const stateStore = new BridgeStateStore({
     ...options,
     authorizedUserId: credentials.userId,
   });
-  const reapedPeerPids = await reapPeerBridgeProcesses({
-    logger: (message) => stateStore.appendLog(message),
-  });
-  if (reapedPeerPids.length > 0) {
-    log(`Reaped ${reapedPeerPids.length} stale bridge process(es): ${reapedPeerPids.join(", ")}`);
-  }
-
-  if (options.adapter === "opencode") {
-    const reapedOpencodePids = await reapOrphanedOpencodeProcesses({
-      logger: (message) => stateStore.appendLog(message),
-    });
-    if (reapedOpencodePids.length > 0) {
-      log(`Reaped ${reapedOpencodePids.length} orphaned opencode process(es): ${reapedOpencodePids.join(", ")}`);
-    }
-  }
 
   let lockRehydratedLogged = false;
   const ensureRuntimeOwnership = (): boolean => {
@@ -505,18 +384,15 @@ async function main(): Promise<void> {
     if (ownership.rehydratedLock && !lockRehydratedLogged) {
       lockRehydratedLogged = true;
       stateStore.appendLog(
-        `lock_rehydrated: pid=${process.pid} instanceId=${stateStore.getState().instanceId} adapter=${options.adapter} cwd=${options.cwd}`,
+        `lock_rehydrated: pid=${process.pid} instanceId=${stateStore.getState().instanceId} runtime=codex cwd=${options.cwd}`,
       );
     }
 
     return true;
   };
 
-  // Clear any stale endpoint left by a previous bridge for this workspace.
-  // This prevents `wechat-*` companions from reconnecting to a dead bridge
-  // while the new runtime is still starting up.
-  const adapter = createRuntimeHost({
-    kind: options.adapter,
+  const codexRuntime = createCodexRuntime({
+    kind: "codex",
     command: options.command,
     cwd: options.cwd,
     profile: options.profile,
@@ -527,9 +403,9 @@ async function main(): Promise<void> {
     initialResumeConversationId: stateStore.getState().resumeConversationId,
     initialTranscriptPath: stateStore.getState().transcriptPath,
   });
-  const controller = new BridgeController(adapter, options.cwd);
+  const controller = new BridgeController(codexRuntime, options.cwd);
   controller.clearLocalClientEndpoint();
-  stateStore.appendLog(`Cleared stale companion endpoint for ${options.cwd} before adapter start.`);
+  stateStore.appendLog(`Cleared stale companion endpoint for ${options.cwd} before runtime start.`);
   let textSendChain = Promise.resolve();
   let attachmentSendChain = Promise.resolve();
   const pendingWechatForwardTasks = new Set<Promise<void>>();
@@ -647,16 +523,15 @@ async function main(): Promise<void> {
       return;
     }
 
-    const adapterState = adapter.getState();
+    const codexRuntimeState = codexRuntime.getState();
     if (
       !canDrainDeferredCodexInboundQueue({
-        adapter: options.adapter,
         deferredCount: deferredInboundMessages.length,
-        status: adapterState.status,
-        activeTurnId: adapterState.activeTurnId,
+        status: codexRuntimeState.status,
+        activeTurnId: codexRuntimeState.activeTurnId,
         hasPendingConfirmation: Boolean(stateStore.getState().pendingConfirmation),
         hasPendingUserInput: Boolean(stateStore.getState().pendingUserInput),
-        hasPendingApproval: Boolean(adapterState.pendingApproval),
+        hasPendingApproval: Boolean(codexRuntimeState.pendingApproval),
         hasActiveTask: Boolean(activeTask),
       })
     ) {
@@ -677,7 +552,7 @@ async function main(): Promise<void> {
         message: nextDeferred.message,
         options,
         stateStore,
-        adapter,
+        codexRuntime,
       });
       activeTask = nextTask;
       lastHeartbeatAt = 0;
@@ -695,12 +570,10 @@ async function main(): Promise<void> {
       stateStore.appendLog(`deferred_inbound_error: ${errorText}`);
       await queueWechatMessage(
         nextDeferred.message.senderId,
-        formatUserFacingInboundError({
-          adapter: options.adapter,
-          cwd: options.cwd,
-          errorText,
-          isUserFacingShellRejection: false,
-        }),
+            formatUserFacingInboundError({
+              cwd: options.cwd,
+              errorText,
+            }),
         "inbound_error",
       );
     } finally {
@@ -748,7 +621,7 @@ async function main(): Promise<void> {
       // Best effort flush.
     }
     try {
-      await adapter.dispose();
+      await codexRuntime.dispose();
     } catch {
       // Best effort shutdown.
     }
@@ -812,8 +685,8 @@ async function main(): Promise<void> {
   });
 
   try {
-    wireAdapterEvents({
-      adapter,
+    wireCodexRuntimeEvents({
+      codexRuntime,
       options,
       transport,
       stateStore,
@@ -831,7 +704,7 @@ async function main(): Promise<void> {
         lastOutputAt = Date.now();
       },
       syncSharedSessionState: () => {
-        syncSharedSessionState(stateStore, adapter);
+        syncSharedSessionState(stateStore, codexRuntime);
       },
       syncLocalClientEndpoint: () => {
         controller.syncLocalClientEndpoint();
@@ -839,46 +712,27 @@ async function main(): Promise<void> {
       requestShutdown,
     });
 
-    await adapter.start();
+    await codexRuntime.start();
     if (!ensureRuntimeOwnership()) {
       return;
     }
-    syncSharedSessionState(stateStore, adapter);
+    syncSharedSessionState(stateStore, codexRuntime);
     controller.syncLocalClientEndpoint();
     stateStore.appendLog(
-      `Bridge started with adapter=${options.adapter} command=${options.command} cwd=${options.cwd}`,
+      `Bridge started with runtime=codex command=${options.command} cwd=${options.cwd}`,
     );
 
-    log(`WeChat bridge is ready for adapter "${options.adapter}".`);
+    log("Codex WeChat bridge is ready.");
     log(`Working directory: ${options.cwd}`);
     if (options.profile) {
       log(`Profile: ${options.profile}`);
     }
     log(`Authorized WeChat user: ${credentials.userId}`);
-    if (options.adapter === "codex") {
-      log(
-        'Start the visible Codex panel in a second terminal with: wechat-codex',
-      );
-    } else if (options.adapter === "opencode") {
-      log(
-        'Start the visible OpenCode companion in a second terminal with: wechat-opencode',
-      );
-    } else if (options.adapter === "claude") {
-      log(
-        'Start the visible Claude companion in a second terminal with: wechat-claude',
-      );
-    } else if (options.adapter === "shell") {
-      log(
-        "Shell mode runs as a headless remote executor for non-interactive commands and scripts.",
-      );
-    }
-
-    loadEmojiBindings();
-    const welcomeText = t("bridge.welcome", {
-      adapter: options.adapter,
-      cwd: options.cwd,
-      bindings: formatBindingsListMessage(listBindings()),
-    });
+    const welcomeText = [
+      "Codex WeChat bridge is ready.",
+      `cwd: ${options.cwd}`,
+      "Send a message here to forward it to Codex.",
+    ].join("\n");
     await queueWechatMessage(credentials.userId, welcomeText);
 
     while (true) {
@@ -935,10 +789,7 @@ async function main(): Promise<void> {
           backlogNoticeSent = true;
           await queueWechatMessage(
             stateStore.getState().authorizedUserId,
-            t("bridge.backlogIgnored", {
-              count: pollResult.ignoredBacklogCount,
-              graceSeconds: Math.round(MESSAGE_START_GRACE_MS / 1000),
-            }),
+            `Ignored ${pollResult.ignoredBacklogCount} startup backlog message(s) from the first ${Math.round(MESSAGE_START_GRACE_MS / 1000)} second(s).`,
             "notice",
           );
         }
@@ -956,7 +807,7 @@ async function main(): Promise<void> {
             message,
             options,
             stateStore,
-            adapter,
+            codexRuntime,
             queueWechatMessage,
             outputBatcher,
             deferInboundMessage: async (nextMessage) => {
@@ -974,19 +825,13 @@ async function main(): Promise<void> {
           });
         } catch (err) {
           const errorText = err instanceof Error ? err.message : String(err);
-          const isUserFacingShellRejection =
-            err instanceof Error && err.name === "ShellCommandRejectedError";
           logError(errorText);
-          stateStore.appendLog(
-            `${isUserFacingShellRejection ? "inbound_rejected" : "inbound_error"}: ${errorText}`,
-          );
+          stateStore.appendLog(`inbound_error: ${errorText}`);
           await queueWechatMessage(
             message.senderId,
             formatUserFacingInboundError({
-              adapter: options.adapter,
               cwd: options.cwd,
               errorText,
-              isUserFacingShellRejection,
             }),
             "inbound_error",
           );
@@ -995,25 +840,11 @@ async function main(): Promise<void> {
           activeTask = nextTask;
           lastHeartbeatAt = 0;
         }
-        syncSharedSessionState(stateStore, adapter);
+        syncSharedSessionState(stateStore, codexRuntime);
         await maybeDrainDeferredInboundMessages();
       }
 
-      const adapterState = adapter.getState();
-      const lastSignalAt = Math.max(lastHeartbeatAt, lastOutputAt || activeTask?.startedAt || 0);
-
-      if (
-        activeTask &&
-        options.adapter === "shell" &&
-        adapterState.status === "busy" &&
-        Date.now() - lastSignalAt >= 30_000
-      ) {
-        lastHeartbeatAt = Date.now();
-        await queueWechatMessage(
-          stateStore.getState().authorizedUserId,
-          `${options.adapter} is still running. Waiting for more output...`,
-        );
-      }
+      void Math.max(lastHeartbeatAt, lastOutputAt || activeTask?.startedAt || 0);
     }
   } finally {
     await shutdown(requestedExitCode);
@@ -1022,40 +853,23 @@ async function main(): Promise<void> {
 
 function syncSharedSessionState(
   stateStore: BridgeStateStore,
-  adapter: BridgeAdapter,
+  codexRuntime: CodexRuntime,
 ): void {
   const persistedState = stateStore.getState();
   const persistedSessionId = persistedState.sharedSessionId ?? persistedState.sharedThreadId;
-  const adapterState = adapter.getState();
-  const adapterSessionId = adapterState.sharedSessionId ?? adapterState.sharedThreadId;
+  const codexRuntimeState = codexRuntime.getState();
+  const runtimeSessionId = codexRuntimeState.sharedSessionId ?? codexRuntimeState.sharedThreadId;
 
-  if (adapterSessionId && adapterSessionId !== persistedSessionId) {
-    stateStore.setSharedSessionId(adapterSessionId);
-  } else if (!adapterSessionId && persistedSessionId) {
+  if (runtimeSessionId && runtimeSessionId !== persistedSessionId) {
+    stateStore.setSharedSessionId(runtimeSessionId);
+  } else if (!runtimeSessionId && persistedSessionId) {
     stateStore.clearSharedSessionId();
   }
 
-  if (persistedState.adapter !== "claude") {
-    return;
-  }
-
-  if (
-    adapterState.resumeConversationId !== persistedState.resumeConversationId ||
-    adapterState.transcriptPath !== persistedState.transcriptPath
-  ) {
-    if (adapterState.resumeConversationId || adapterState.transcriptPath) {
-      stateStore.setClaudeResumeState(
-        adapterState.resumeConversationId,
-        adapterState.transcriptPath,
-      );
-    } else {
-      stateStore.clearClaudeResumeState();
-    }
-  }
 }
 
-function wireAdapterEvents(params: {
-  adapter: BridgeAdapter;
+function wireCodexRuntimeEvents(params: {
+  codexRuntime: CodexRuntime;
   options: BridgeCliOptions;
   transport: WeChatTransport;
   stateStore: BridgeStateStore;
@@ -1076,7 +890,7 @@ function wireAdapterEvents(params: {
   requestShutdown: (message: string, exitCode?: number) => void;
 }): void {
   const {
-    adapter,
+    codexRuntime,
     options,
     transport,
     stateStore,
@@ -1093,15 +907,15 @@ function wireAdapterEvents(params: {
     requestShutdown,
   } = params;
 
-  adapter.setEventSink((event) => {
+  codexRuntime.setEventSink((event) => {
     syncSharedSessionState();
     syncLocalClientEndpoint();
-    const adapterState = adapter.getState();
+    const codexRuntimeState = codexRuntime.getState();
     const bridgeState = stateStore.getState();
-    if (bridgeState.pendingConfirmation && !adapterState.pendingApproval) {
+    if (bridgeState.pendingConfirmation && !codexRuntimeState.pendingApproval) {
       stateStore.clearPendingConfirmation();
     }
-    if (bridgeState.pendingUserInput && !adapterState.pendingUserInput) {
+    if (bridgeState.pendingUserInput && !codexRuntimeState.pendingUserInput) {
       stateStore.clearPendingUserInput();
     }
     const authorizedUserId = stateStore.getState().authorizedUserId;
@@ -1110,7 +924,7 @@ function wireAdapterEvents(params: {
       case "stdout":
       case "stderr":
         updateLastOutputAt();
-        if (shouldForwardBridgeEventToWechat(options.adapter, event.type)) {
+        if (shouldForwardBridgeEventToWechat(event.type)) {
           outputBatcher.push(event.text);
         }
         break;
@@ -1118,11 +932,10 @@ function wireAdapterEvents(params: {
         stateStore.appendLog(`final_reply: ${truncatePreview(event.text)}`);
         trackWechatForwardTask(outputBatcher.flushNow().then(async () => {
           await forwardWechatFinalReply({
-            adapter: options.adapter,
             rawText: event.text,
             onEmptyVisibleReply: ({ rawVisibleText }) => {
               stateStore.appendLog(
-                `empty_visible_final_reply: adapter=${options.adapter} raw=${truncatePreview(rawVisibleText)}`,
+                `empty_visible_final_reply: runtime=codex raw=${truncatePreview(rawVisibleText)}`,
               );
             },
             sender: {
@@ -1169,7 +982,7 @@ function wireAdapterEvents(params: {
       case "notice":
         updateLastOutputAt();
         stateStore.appendLog(`${event.level}_notice: ${truncatePreview(event.text)}`);
-        if (shouldForwardBridgeEventToWechat(options.adapter, event.type, { text: event.text })) {
+        if (shouldForwardBridgeEventToWechat(event.type, { text: event.text })) {
           trackWechatForwardTask(outputBatcher.flushNow().then(async () => {
             await queueWechatMessage(authorizedUserId, event.text, "notice");
           }));
@@ -1196,7 +1009,7 @@ function wireAdapterEvents(params: {
           );
           await queueWechatMessage(
             authorizedUserId,
-            formatApprovalMessage(pending, adapterState),
+            formatApprovalMessage(pending, codexRuntimeState),
             "approval_required",
           );
         }));
@@ -1210,18 +1023,18 @@ function wireAdapterEvents(params: {
           );
           await queueWechatMessage(
             authorizedUserId,
-            formatUserInputRequestMessage(pending, adapterState),
+            formatUserInputRequestMessage(pending, codexRuntimeState),
             "user_input_required",
           );
         }));
         break;
       case "mirrored_user_input":
         stateStore.appendLog(`mirrored_local_input: ${truncatePreview(event.text)}`);
-        if (shouldForwardBridgeEventToWechat(options.adapter, event.type, { text: event.text })) {
+        if (shouldForwardBridgeEventToWechat(event.type, { text: event.text })) {
           trackWechatForwardTask(outputBatcher.flushNow().then(async () => {
             await queueWechatMessage(
               authorizedUserId,
-              formatMirroredUserInputMessage(options.adapter, event.text),
+              formatMirroredUserInputMessage(event.text),
               "mirrored_user_input",
             );
           }));
@@ -1231,12 +1044,11 @@ function wireAdapterEvents(params: {
         stateStore.appendLog(
           `session_switched: ${event.sessionId} source=${event.source} reason=${event.reason}`,
         );
-        if (shouldForwardBridgeEventToWechat(options.adapter, event.type)) {
+        if (shouldForwardBridgeEventToWechat(event.type)) {
           trackWechatForwardTask(outputBatcher.flushNow().then(async () => {
             await queueWechatMessage(
               authorizedUserId,
               formatSessionSwitchMessage({
-                adapter: options.adapter,
                 sessionId: event.sessionId,
                 source: event.source,
                 reason: event.reason,
@@ -1250,12 +1062,11 @@ function wireAdapterEvents(params: {
         stateStore.appendLog(
           `thread_switched: ${event.threadId} source=${event.source} reason=${event.reason}`,
         );
-        if (shouldForwardBridgeEventToWechat(options.adapter, event.type)) {
+        if (shouldForwardBridgeEventToWechat(event.type)) {
           trackWechatForwardTask(outputBatcher.flushNow().then(async () => {
             await queueWechatMessage(
               authorizedUserId,
               formatSessionSwitchMessage({
-                adapter: options.adapter,
                 sessionId: event.threadId,
                 source: event.source,
                 reason: event.reason,
@@ -1270,15 +1081,8 @@ function wireAdapterEvents(params: {
         trackWechatForwardTask(outputBatcher.flushNow().then(async () => {
           stateStore.clearPendingConfirmation();
           stateStore.clearPendingUserInput();
-          if (options.adapter === "shell") {
-            const summary = buildCompletionSummary({
-              adapter: options.adapter,
-              activeTask: getActiveTask(),
-              exitCode: event.exitCode,
-              recentOutput: outputBatcher.getRecentSummary(),
-            });
-            await queueWechatMessage(authorizedUserId, summary);
-          }
+          void event.exitCode;
+          void getActiveTask;
           clearActiveTask();
           await maybeDrainDeferredInboundMessages();
         }));
@@ -1290,7 +1094,7 @@ function wireAdapterEvents(params: {
           clearActiveTask();
           await queueWechatMessage(
             authorizedUserId,
-            formatTaskFailedMessage(options.adapter, event.message),
+            formatTaskFailedMessage(event.message),
             "task_failed",
           );
           await maybeDrainDeferredInboundMessages();
@@ -1319,26 +1123,6 @@ function wireAdapterEvents(params: {
   });
 }
 
-function buildCompletionSummary(params: {
-  adapter: BridgeAdapterKind;
-  activeTask: ActiveTask | null;
-  exitCode?: number;
-  recentOutput: string;
-}): string {
-  const lines = [`${params.adapter} task complete.`];
-  if (params.activeTask) {
-    lines.push(
-      `duration: ${formatDuration(Date.now() - params.activeTask.startedAt)}`,
-    );
-    lines.push(`input: ${params.activeTask.inputPreview}`);
-  }
-  if (typeof params.exitCode === "number") {
-    lines.push(`exit_code: ${params.exitCode}`);
-  }
-  lines.push(`recent_output:\n${params.recentOutput}`);
-  return lines.join("\n");
-}
-
 function formatInboundMessagePreview(message: InboundWechatMessage): string {
   if (message.text.trim()) {
     return message.text;
@@ -1357,7 +1141,7 @@ async function handleInboundMessage(params: {
   message: InboundWechatMessage;
   options: BridgeCliOptions;
   stateStore: BridgeStateStore;
-  adapter: BridgeAdapter;
+  codexRuntime: CodexRuntime;
   queueWechatMessage: (
     senderId: string,
     text: string,
@@ -1366,13 +1150,13 @@ async function handleInboundMessage(params: {
   outputBatcher: OutputBatcher;
   deferInboundMessage: (message: InboundWechatMessage) => Promise<void>;
 }): Promise<ActiveTask | null> {
-  let {
+  const {
     message,
   } = params;
   const {
     options,
     stateStore,
-    adapter,
+    codexRuntime,
     queueWechatMessage,
     outputBatcher,
     deferInboundMessage,
@@ -1387,45 +1171,7 @@ async function handleInboundMessage(params: {
     return null;
   }
 
-  // Emoji resolution: rewrite message text if it starts with a bound emoji
-  const emojiMatch = resolveEmojiCommand(message.text);
-  if (emojiMatch) {
-    const rewritten = emojiMatch.remainder
-      ? `${emojiMatch.command} ${emojiMatch.remainder}`
-      : emojiMatch.command;
-    message = { ...message, text: rewritten };
-  }
-
-  // Emoji binding management commands
-  const bindingsCmd = parseEmojiBindingsCommand(message.text);
-  if (bindingsCmd) {
-    switch (bindingsCmd.type) {
-      case "list":
-        await queueWechatMessage(message.senderId, formatBindingsListMessage(listBindings()));
-        break;
-      case "bind":
-        setBinding(bindingsCmd.emoji, bindingsCmd.command);
-        await queueWechatMessage(message.senderId, `Bound ${bindingsCmd.emoji} → ${bindingsCmd.command}`);
-        break;
-      case "unbind": {
-        const removed = removeBinding(bindingsCmd.emoji);
-        await queueWechatMessage(
-          message.senderId,
-          removed ? `Unbound ${bindingsCmd.emoji}` : `No binding found for ${bindingsCmd.emoji}`,
-        );
-        break;
-      }
-    }
-    return null;
-  }
-
-  if (isBindCommandPrefix(message.text)) {
-    await queueWechatMessage(message.senderId, formatBindCommandUsage());
-    return null;
-  }
-
   const systemCommand = parseWechatControlCommand(message.text, {
-    adapter: options.adapter,
     hasPendingConfirmation: Boolean(state.pendingConfirmation),
     hasPendingUserInput: Boolean(state.pendingUserInput),
   });
@@ -1434,43 +1180,21 @@ async function handleInboundMessage(params: {
     case "status":
       await queueWechatMessage(
         message.senderId,
-        formatStatusReport(stateStore.getState(), adapter.getState()),
+        formatStatusReport(stateStore.getState(), codexRuntime.getState()),
       );
       return null;
     case "resume": {
-      if (options.adapter === "codex") {
-        await queueWechatMessage(
-          message.senderId,
-          'WeChat /resume is disabled in codex mode. Use /resume directly inside "wechat-codex"; WeChat will follow the active local thread.',
-        );
-        return null;
-      }
-      if (options.adapter === "claude") {
-        await queueWechatMessage(
-          message.senderId,
-          'WeChat /resume is disabled in claude mode. Use /resume directly inside "wechat-claude"; WeChat will follow the active local session.',
-        );
-        return null;
-      }
-      if (options.adapter === "opencode") {
-        await queueWechatMessage(
-          message.senderId,
-          'WeChat /resume is disabled in opencode mode. Use /resume directly inside "wechat-opencode"; WeChat will follow the active local session.',
-        );
-        return null;
-      }
-
       await queueWechatMessage(
         message.senderId,
-        `/resume is not available in ${options.adapter} mode.`,
+        "WeChat /resume is disabled. Use /resume inside Codex; the bridge follows the active Codex thread.",
       );
       return null;
     }
     case "new_session": {
-      if (!adapter.createSession) {
+      if (!codexRuntime.createSession) {
         await queueWechatMessage(
           message.senderId,
-          `/new is not available in ${options.adapter} mode.`,
+          "/new is not available in Codex mode.",
         );
         return null;
       }
@@ -1479,12 +1203,12 @@ async function handleInboundMessage(params: {
       stateStore.clearPendingConfirmation();
       stateStore.clearPendingUserInput();
       stateStore.clearSharedSessionId();
-      await adapter.createSession();
-      stateStore.appendLog(`New ${options.adapter} session requested by owner.`);
+      await codexRuntime.createSession();
+      stateStore.appendLog("New Codex session requested by owner.");
       return null;
     }
     case "stop": {
-      const interrupted = await adapter.interrupt();
+      const interrupted = await codexRuntime.interrupt();
       await queueWechatMessage(
         message.senderId,
         interrupted
@@ -1499,7 +1223,7 @@ async function handleInboundMessage(params: {
       stateStore.clearPendingConfirmation();
       stateStore.clearPendingUserInput();
       stateStore.clearSharedSessionId();
-      await adapter.reset();
+      await codexRuntime.reset();
       stateStore.appendLog("Worker reset by owner.");
       await queueWechatMessage(message.senderId, "Worker session has been reset.");
       return null;
@@ -1509,7 +1233,7 @@ async function handleInboundMessage(params: {
         await queueWechatMessage(message.senderId, "No pending approval request.");
         return null;
       }
-      const confirmed = await adapter.resolveApproval("confirm");
+      const confirmed = await codexRuntime.resolveApproval("confirm");
       if (!confirmed) {
         await queueWechatMessage(
           message.senderId,
@@ -1531,7 +1255,7 @@ async function handleInboundMessage(params: {
         await queueWechatMessage(message.senderId, "No pending approval request.");
         return null;
       }
-      const denied = await adapter.resolveApproval("deny");
+      const denied = await codexRuntime.resolveApproval("deny");
       if (!denied) {
         await queueWechatMessage(
           message.senderId,
@@ -1557,7 +1281,7 @@ async function handleInboundMessage(params: {
         return null;
       }
 
-      const submitted = await adapter.submitUserInput(parsed.answers);
+      const submitted = await codexRuntime.submitUserInput(parsed.answers);
       if (!submitted) {
         await queueWechatMessage(
           message.senderId,
@@ -1579,7 +1303,7 @@ async function handleInboundMessage(params: {
   if (state.pendingConfirmation) {
     await queueWechatMessage(
       message.senderId,
-      formatPendingApprovalReminder(state.pendingConfirmation, adapter.getState()),
+      formatPendingApprovalReminder(state.pendingConfirmation, codexRuntime.getState()),
     );
     return null;
   }
@@ -1592,12 +1316,11 @@ async function handleInboundMessage(params: {
     return null;
   }
 
-  const adapterState = adapter.getState();
+  const codexRuntimeState = codexRuntime.getState();
   if (
     shouldDeferCodexInboundMessage({
-      adapter: options.adapter,
-      status: adapterState.status,
-      activeTurnOrigin: adapterState.activeTurnOrigin,
+      status: codexRuntimeState.status,
+      activeTurnOrigin: codexRuntimeState.activeTurnOrigin,
       hasPendingConfirmation: Boolean(state.pendingConfirmation),
       hasSystemCommand: Boolean(systemCommand),
     })
@@ -1606,23 +1329,18 @@ async function handleInboundMessage(params: {
     return null;
   }
 
-  if (adapterState.status === "busy") {
-    if (
-      (options.adapter === "codex" || options.adapter === "opencode") &&
-      adapterState.activeTurnOrigin === "local"
-    ) {
+  if (codexRuntimeState.status === "busy") {
+    if (codexRuntimeState.activeTurnOrigin === "local") {
       await queueWechatMessage(
         message.senderId,
-        `${
-          options.adapter === "opencode" ? "OpenCode" : "codex"
-        } is currently busy with a local terminal turn. Wait for it to finish or use /stop.`,
+        "Codex is currently busy with a local terminal turn. Wait for it to finish or use /stop.",
       );
       return null;
     }
 
     await queueWechatMessage(
       message.senderId,
-      `${options.adapter} is still working. Wait for the current reply or use /stop.`,
+      "Codex is still working. Wait for the current reply or use /stop.",
     );
     return null;
   }
@@ -1631,7 +1349,7 @@ async function handleInboundMessage(params: {
     message,
     options,
     stateStore,
-    adapter,
+    codexRuntime,
   });
 }
 
@@ -1639,16 +1357,16 @@ async function dispatchInboundWechatText(params: {
   message: InboundWechatMessage;
   options: BridgeCliOptions;
   stateStore: BridgeStateStore;
-  adapter: BridgeAdapter;
+  codexRuntime: CodexRuntime;
 }): Promise<ActiveTask> {
-  const { message, options, stateStore, adapter } = params;
+  const { message, options, stateStore, codexRuntime } = params;
   const preview = formatInboundMessagePreview(message);
   const activeTask = {
     startedAt: Date.now(),
     inputPreview: truncatePreview(preview, 180),
   };
-  stateStore.appendLog(`Forwarded input to ${options.adapter}: ${truncatePreview(preview)}`);
-  await adapter.sendInput(buildWechatInboundPrompt(message.text, message.attachments));
+  stateStore.appendLog(`Forwarded input to ${"codex"}: ${truncatePreview(preview)}`);
+  await codexRuntime.sendInput(buildWechatInboundPrompt(message.text, message.attachments));
   return activeTask;
 }
 
@@ -1659,3 +1377,4 @@ if (isDirectRun) {
     process.exit(1);
   });
 }
+

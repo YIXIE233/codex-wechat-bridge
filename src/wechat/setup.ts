@@ -1,10 +1,10 @@
 #!/usr/bin/env bun
 /**
- * CLI WeChat Bridge setup.
+ * Codex WeChat Bridge setup.
  *
  * Installed bridge commands run this automatically on first use.
  * To force a relogin manually:
- *   wechat-setup
+ *   codex-wechat-setup
  */
 
 import crypto from "node:crypto";
@@ -239,18 +239,10 @@ function saveCredentials(account: StoredAccount): void {
 function printPostLoginHelp(log: (message: string) => void): void {
   log("This WeChat account is now authorized for the bridge.");
   log("");
-  log("Start from any project directory with one of:");
-  log("  wechat-codex-start");
-  log("  wechat-claude-start");
-  log("  wechat-opencode-start");
-  log("  wechat-bridge-shell");
+  log("Start from any project directory with:");
+  log("  codex-wechat-bridge --cwd <project>");
   log("");
-  log("Manual two-terminal mode is also available:");
-  log("  wechat-bridge-codex  +  wechat-codex");
-  log("  wechat-bridge-claude +  wechat-claude");
-  log("  wechat-bridge-opencode + wechat-opencode");
-  log("");
-  log("Run wechat-setup again any time you need to refresh the login.");
+  log("Run codex-wechat-setup again any time you need to refresh the login.");
 }
 
 export async function runWechatLogin(
@@ -350,6 +342,13 @@ export async function ensureWechatCredentials(
 }
 
 async function main() {
+  if (process.argv.includes("--help") || process.argv.includes("-h")) {
+    console.log("Usage: codex-wechat-setup");
+    console.log("");
+    console.log("Log in or refresh the WeChat credentials used by codex-wechat-bridge.");
+    return;
+  }
+
   migrateLegacyChannelFiles((message) => console.log(message));
 
   const existing = loadExistingCredentials();
