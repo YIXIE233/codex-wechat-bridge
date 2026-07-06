@@ -80,12 +80,21 @@
 - 保留 shared thread/session id，用于后续恢复。
 - 读取旧格式状态/锁时，`adapter: "codex"` 应兼容；非 Codex 旧记录应忽略。
 
-## 9. 明确不属于当前桥的范围
+## 9. Codex-only daemon / MCP / diagnostics
+
+- 保留 Codex-only daemon：一个微信连接、一个 Codex slot。
+- daemon 支持启动/复用可见 `wechat-codex` TUI。
+- daemon 支持 IPC endpoint、`status`、`shutdown`、`ensure_slot`、`switch_adapter`（仅 Codex）。
+- daemon 启动前会清理 stale daemon endpoint、旧单桥 lock/endpoint 和 peer bridge 进程。
+- 保留 WeChat MCP 的 status/fetch/reply/notify/send media/reset 工具。
+- 保留 doctor 和 update-checker。
+- 保留 emoji binding：`/bindings`、`/bind`、`/unbind`，默认只绑定 Codex 可用命令。
+
+## 10. 明确不属于当前桥的范围
 
 - 不包含 Claude。
 - 不包含 OpenCode。
 - 不包含 shell bridge。
-- 不包含 daemon 多 CLI 切换。
-- 不包含 daemon 托管的多 CLI companion 层；仅保留 Codex-only 的 `wechat-codex` 原生 TUI 连接入口。
+- 不包含 daemon 多 CLI 切换；daemon 只保留 Codex-only slot。
 - 不包含外部 inject/socket 自动化入口。
 - 不包含定时器或自动化层。

@@ -12,7 +12,7 @@ Allowed changes:
 Disallowed changes:
 - new lightweight Codex client/service/endpoint implementations;
 - inject/automation/socket entrypoints;
-- daemon/emoji/multi-CLI behavior;
+- multi-CLI selector behavior;
 - Claude/OpenCode/Shell production paths.
 
 | Target file | Original source | Required handling |
@@ -31,13 +31,25 @@ Disallowed changes:
 | src/codex/codex-remote-client.ts | src/companion/codex-remote-client.ts | Copy original logic, only import/path/name adjustments. |
 | src/codex/codex-start.ts | src/companion/local-companion-start.ts | Copy original launcher logic, keep Codex path, remove daemon/non-Codex branches. |
 | src/bridge/bridge-process-reaper.ts | src/bridge/bridge-process-reaper.ts | Restore generic/Codex bridge process cleanup; remove OpenCode-specific orphan cleanup. |
+| src/daemon/codex-daemon.ts | src/daemon/wechat-daemon.ts | Codex-only daemon rewrite; keep persistent WeChat connection, auto visible Codex launch, IPC, stale daemon/single-bridge cleanup, approval/input/final forwarding; remove non-Codex slots. |
+| src/daemon/daemon-link.ts | src/daemon/daemon-link.ts | Copy daemon IPC protocol; narrow adapter type to Codex only. |
 | src/wechat/channel-config.ts | src/wechat/channel-config.ts | Keep account/sync/state/workspace endpoint paths and migration needed by Codex bridge. |
 | src/wechat/setup.ts | src/wechat/setup.ts | Keep WeChat login/setup flow, rename user-facing package commands. |
 | src/wechat/wechat-transport.ts | src/wechat/wechat-transport.ts | Keep WeChat polling/sending/attachment transport used by Codex bridge. |
+| src/wechat/emoji-bindings.ts | src/daemon/emoji-bindings.ts | Copy original emoji binding logic; keep Codex default bindings only. |
+| src/wechat/wechat-mcp.ts | src/wechat/wechat-channel.ts | Copy original WeChat MCP server; rename package/server metadata only. |
+| src/i18n/*.ts | src/i18n/*.ts | Copy original i18n support; retarget package/daemon wording to Codex-only. |
+| src/utils/doctor.ts | src/utils/doctor.ts | Codex-only doctor from original diagnostics structure. |
+| src/utils/version-checker.ts | src/utils/version-checker.ts | Copy original update checker; retarget package and GitHub repository. |
+| src/commands/check-update.ts | src/commands/check-update.ts | Copy original update command; retarget package wording. |
 | src/types/qrcode-terminal.d.ts | src/types/qrcode-terminal.d.ts | Keep type shim. |
 | scripts/ensure-node-pty-permissions.mjs | scripts/ensure-node-pty-permissions.mjs | Copy original. |
 | bin/_run-entry.mjs | bin/_run-entry.mjs | Copy original runner, rename package messages. |
 | bin/codex-wechat-bridge.mjs | bin/wechat-bridge-codex.mjs | Thin alias wrapper to dist bridge. |
+| bin/codex-wechat-daemon.mjs | bin/wechat-daemon.mjs | Thin alias wrapper to Codex-only daemon. |
+| bin/codex-wechat-doctor.mjs | original doctor command wiring | Thin alias wrapper to Codex-only doctor. |
+| bin/codex-wechat-check-update.mjs | bin/wechat-check-update.mjs | Thin alias wrapper to Codex-only update checker. |
+| bin/codex-wechat-mcp.mjs | original MCP start script | Thin alias wrapper to Codex-only WeChat MCP server. |
 | bin/codex-wechat-setup.mjs | bin/wechat-setup.mjs | Thin alias wrapper to dist setup. |
 | bin/wechat-bridge-codex.mjs | bin/wechat-bridge-codex.mjs | Copy original wrapper, adapt dist target if needed. |
 | bin/wechat-codex.mjs | bin/wechat-codex.mjs | Copy original wrapper, adapt dist target if needed. |

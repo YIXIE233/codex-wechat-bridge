@@ -12,8 +12,8 @@ export const messages: Record<string, string> = {
   "bridge.backlogIgnored": "已忽略 {count} 条桥接启动前的积压消息（不会自动处理）。\n如果你是在桥接启动后才发送的消息却看到此提示，说明本机系统时钟可能不准（偏差超过 {graceSeconds} 秒），请校准时间后重启桥接。",
 
   // === Daemon 欢迎 & 控制 ===
-  "daemon.welcome": "微信 Daemon 就绪。\n工作目录: {cwd}\n当前: {adapter}\n\n命令: /claude, /codex, /opencode, /stop, /confirm, /deny, /status\n{bindings}\n\n管理: /bind [表情] 命令, /unbind [表情], /bindings",
-  "daemon.noActiveAdapter": "未选择活跃终端。发送 /codex、/claude 或 /opencode 启动一个。",
+  "daemon.welcome": "微信 Daemon 就绪。\n工作目录: {cwd}\n当前: {adapter}\n\n命令: /codex, /stop, /confirm, /deny, /status\n{bindings}\n\n管理: /bind [表情] 命令, /unbind [表情], /bindings",
+  "daemon.noActiveAdapter": "未选择活跃终端。发送 /codex 启动 Codex。",
   "daemon.switchResult.new": "已启动新的可见 CLI。",
   "daemon.switchResult.reused": "已复用现有的可见 CLI。",
 
@@ -28,7 +28,7 @@ export const messages: Record<string, string> = {
   // === Hook 健康检查 ===
   "hook.healthCheck.warning": "[警告] 15 秒内未收到 Claude hook 事件。\nhook 系统可能未正常工作 — Claude 的输出将无法到达微信。",
   "hook.healthCheck.logHint": "\n查看日志: {logPath}",
-  "hook.healthCheck.fixes": "\n常见修复方法:\n- 确保 Node.js >= 22.6.0: node --version\n- 重新安装: npm install -g cli-wechat-bridge@latest\n- 检查防火墙: 允许 localhost TCP 连接",
+  "hook.healthCheck.fixes": "\n常见修复方法:\n- 确保 Node.js >= 22.6.0: node --version\n- 重新安装: npm install -g codex-wechat-bridge@latest\n- 检查防火墙: 允许 localhost TCP 连接",
 
   // === PTY 回退 ===
   "pty.fallback.warning": "[警告] PTY 不可用 — 已切换到回退模式（TERM=dumb）。\n核心功能（消息收发、审批、会话管理）正常工作；终端渲染（颜色、进度条）可能受限。\n修复方法: Linux 安装 build-essential python3 | Windows 运行 npm rebuild node-pty | macOS 运行 xcode-select --install\n运行 --doctor 查看详细环境信息。\n",
@@ -36,11 +36,11 @@ export const messages: Record<string, string> = {
   // === 启动诊断 ===
   "spawn.diagnostic.title": "无法启动 CLI 进程: {target}\n错误: {error}",
   "spawn.diagnostic.fixesHeader": "\n可能的修复方法:",
-  "spawn.diagnostic.nodePty": "- node-pty 原生模块与当前 Node.js 版本不兼容。\n- 运行: npm rebuild node-pty\n- 或重新安装: npm install -g cli-wechat-bridge@latest",
+  "spawn.diagnostic.nodePty": "- node-pty 原生模块与当前 Node.js 版本不兼容。\n- 运行: npm rebuild node-pty\n- 或重新安装: npm install -g codex-wechat-bridge@latest",
   "spawn.diagnostic.xcode": "- 确保已安装 Xcode 命令行工具: xcode-select --install",
-  "spawn.diagnostic.linuxBuildTools": "- Linux 需要编译工具来构建 node-pty: sudo apt install build-essential python3\n- 然后重新安装: npm install -g cli-wechat-bridge@latest",
+  "spawn.diagnostic.linuxBuildTools": "- Linux 需要编译工具来构建 node-pty: sudo apt install build-essential python3\n- 然后重新安装: npm install -g codex-wechat-bridge@latest",
   "spawn.diagnostic.notFound": "- 命令 \"{target}\" 未在 PATH 中找到。\n- 请确认已安装并可从终端访问。",
-  "spawn.diagnostic.generic": "- 重新安装: npm install -g cli-wechat-bridge@latest",
+  "spawn.diagnostic.generic": "- 重新安装: npm install -g codex-wechat-bridge@latest",
   "spawn.diagnostic.nodeVersion": "- 确保 Node.js >= 22.6.0: node --version",
   "spawn.diagnostic.winFull": "- 确保 Windows 10 build 18309+（运行 winver 查看）\n- 安装 Visual C++ Redistributable: https://aka.ms/vs/17/release/vc_redist.x64.exe\n- 运行: npm rebuild node-pty\n- 尝试以管理员身份运行",
 
@@ -53,7 +53,7 @@ export const messages: Record<string, string> = {
   "binding.listHeader": "Emoji 绑定列表:",
 
   // === 版本检查 ===
-  "update.available": "[有新版本] 版本 {latest} 可用（当前: {current}）。\n运行: npm install -g cli-wechat-bridge@latest",
+  "update.available": "[有新版本] 版本 {latest} 可用（当前: {current}）。\n运行: npm install -g codex-wechat-bridge@latest",
   // === Doctor ===
   "doctor.title": "CLI WeChat Bridge 诊断",
   "doctor.section.environment": "环境",

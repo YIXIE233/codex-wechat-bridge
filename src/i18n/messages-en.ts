@@ -12,8 +12,8 @@ export const messages: Record<string, string> = {
   "bridge.backlogIgnored": "Ignored {count} backlog message(s) sent before the bridge started (they will not be processed).\nIf you actually sent them after the bridge started, your system clock is likely skewed by more than {graceSeconds}s — sync the clock and restart the bridge.",
 
   // === Daemon welcome & control ===
-  "daemon.welcome": "WeChat Daemon ready.\nCWD: {cwd}\nActive: {adapter}\n\nCommands: /claude, /codex, /opencode, /stop, /confirm, /deny, /status\n{bindings}\n\nManage: /bind [emoji] cmd, /unbind [emoji], /bindings",
-  "daemon.noActiveAdapter": "No active terminal is selected. Send /codex, /claude, or /opencode to start one.",
+  "daemon.welcome": "WeChat Daemon ready.\nCWD: {cwd}\nActive: {adapter}\n\nCommands: /codex, /stop, /confirm, /deny, /status\n{bindings}\n\nManage: /bind [emoji] cmd, /unbind [emoji], /bindings",
+  "daemon.noActiveAdapter": "No active terminal is selected. Send /codex to start Codex.",
   "daemon.switchResult.new": "Started a new visible CLI.",
   "daemon.switchResult.reused": "Reused the existing visible CLI.",
 
@@ -28,7 +28,7 @@ export const messages: Record<string, string> = {
   // === Hook health check ===
   "hook.healthCheck.warning": "[Warning] No hook events received from Claude after 15s.\nThe hook system may not be working — Claude output will not reach WeChat.",
   "hook.healthCheck.logHint": "\nCheck: {logPath}",
-  "hook.healthCheck.fixes": "\nCommon fixes:\n- Ensure Node.js >= 22.6.0: node --version\n- Reinstall: npm install -g cli-wechat-bridge@latest\n- Check firewall: allow localhost TCP connections",
+  "hook.healthCheck.fixes": "\nCommon fixes:\n- Ensure Node.js >= 22.6.0: node --version\n- Reinstall: npm install -g codex-wechat-bridge@latest\n- Check firewall: allow localhost TCP connections",
 
   // === PTY fallback ===
   "pty.fallback.warning": "[Warning] PTY unavailable — using fallback mode (TERM=dumb).\nCore features (messaging, approvals, session management) work normally; terminal rendering (colors, progress bars) may be degraded.\nFix: Linux install build-essential python3 | Windows run npm rebuild node-pty | macOS run xcode-select --install\nRun --doctor for detailed environment info.\n",
@@ -36,11 +36,11 @@ export const messages: Record<string, string> = {
   // === Spawn diagnostic ===
   "spawn.diagnostic.title": "Failed to start CLI process: {target}\nError: {error}",
   "spawn.diagnostic.fixesHeader": "\nPossible fixes:",
-  "spawn.diagnostic.nodePty": "- The node-pty native module is incompatible with your Node.js version.\n- Run: npm rebuild node-pty\n- Or reinstall: npm install -g cli-wechat-bridge@latest",
+  "spawn.diagnostic.nodePty": "- The node-pty native module is incompatible with your Node.js version.\n- Run: npm rebuild node-pty\n- Or reinstall: npm install -g codex-wechat-bridge@latest",
   "spawn.diagnostic.xcode": "- Ensure Xcode CLI tools are installed: xcode-select --install",
-  "spawn.diagnostic.linuxBuildTools": "- Linux requires build tools for node-pty: sudo apt install build-essential python3\n- Then reinstall: npm install -g cli-wechat-bridge@latest",
+  "spawn.diagnostic.linuxBuildTools": "- Linux requires build tools for node-pty: sudo apt install build-essential python3\n- Then reinstall: npm install -g codex-wechat-bridge@latest",
   "spawn.diagnostic.notFound": "- The command \"{target}\" was not found on PATH.\n- Verify it is installed and accessible from your terminal.",
-  "spawn.diagnostic.generic": "- Reinstall: npm install -g cli-wechat-bridge@latest",
+  "spawn.diagnostic.generic": "- Reinstall: npm install -g codex-wechat-bridge@latest",
   "spawn.diagnostic.nodeVersion": "- Ensure Node.js >= 22.6.0: node --version",
   "spawn.diagnostic.winFull": "- Ensure Windows 10 build 18309+ (run 'winver' to check)\n- Install Visual C++ Redistributable: https://aka.ms/vs/17/release/vc_redist.x64.exe\n- Run: npm rebuild node-pty\n- Try running as Administrator",
 
@@ -53,7 +53,7 @@ export const messages: Record<string, string> = {
   "binding.listHeader": "Emoji bindings:",
 
   // === Version checker ===
-  "update.available": "[Update Available] Version {latest} is available (current: {current}).\nRun: npm install -g cli-wechat-bridge@latest",
+  "update.available": "[Update Available] Version {latest} is available (current: {current}).\nRun: npm install -g codex-wechat-bridge@latest",
   // === Doctor ===
   "doctor.title": "CLI WeChat Bridge Doctor",
   "doctor.section.environment": "Environment",
