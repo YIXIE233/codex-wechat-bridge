@@ -13,9 +13,8 @@
   - `/stop`
   - `/new`
   - `/reset`
-  - `/resume <number|threadId>`（底层保留 thread resume 能力；微信交互可继续收窄）
+  - `/resume`（微信侧禁用；在 `wechat-codex` 原生 Codex TUI 中使用 `/resume`，桥跟随活动 thread）
   - `/confirm`
-  - `/confirm all`
   - `/deny`
   - `/answer ...`
 
@@ -43,7 +42,6 @@
 - 支持 file change approval。
 - 支持 permissions approval。
 - 支持 `/confirm` 和 `/deny` 响应当前 approval。
-- 支持 `/confirm all` 响应当前会话内可批量通过的 approval。
 - 支持 Codex `request_user_input`，并通过 `/answer ...` 回传答案。
 
 ## 5. Codex 输出到微信
@@ -88,6 +86,6 @@
 - 不包含 OpenCode。
 - 不包含 shell bridge。
 - 不包含 daemon 多 CLI 切换。
-- 不包含 companion 可见终端层。
+- 不包含 daemon 托管的多 CLI companion 层；仅保留 Codex-only 的 `wechat-codex` 原生 TUI 连接入口。
 - 不包含外部 inject/socket 自动化入口。
 - 不包含定时器或自动化层。
