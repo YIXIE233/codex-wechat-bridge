@@ -164,6 +164,7 @@ export function parseWindowsBridgeProcessProbeOutput(
   stdout: string,
   currentPid = process.pid,
 ): BridgeProcessRecord[] {
+  const parentPid = process.ppid;
   const trimmed = stdout.trim();
   if (!trimmed) {
     return [];
@@ -181,7 +182,10 @@ export function parseWindowsBridgeProcessProbeOutput(
     .map(normalizeBridgeProcessRecord)
     .filter((record): record is BridgeProcessRecord => Boolean(record))
     .filter(
-      (record) => record.pid !== currentPid && isWechatBridgeCommandLine(record.commandLine),
+      (record) =>
+        record.pid !== currentPid &&
+        record.pid !== parentPid &&
+        isWechatBridgeCommandLine(record.commandLine),
     );
 }
 
@@ -189,6 +193,7 @@ export function parsePosixBridgeProcessProbeOutput(
   stdout: string,
   currentPid = process.pid,
 ): BridgeProcessRecord[] {
+  const parentPid = process.ppid;
   return stdout
     .split(/\r?\n/)
     .map((line) => line.trim())
@@ -210,7 +215,10 @@ export function parsePosixBridgeProcessProbeOutput(
     })
     .filter((record): record is BridgeProcessRecord => Boolean(record))
     .filter(
-      (record) => record.pid !== currentPid && isWechatBridgeCommandLine(record.commandLine),
+      (record) =>
+        record.pid !== currentPid &&
+        record.pid !== parentPid &&
+        isWechatBridgeCommandLine(record.commandLine),
     );
 }
 
