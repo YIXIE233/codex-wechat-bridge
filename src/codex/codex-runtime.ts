@@ -1408,6 +1408,10 @@ export class CodexPtyRuntime implements CodexRuntime {
       [
         ...spawnTarget.args,
         "app-server",
+        "-c",
+        'approval_policy="never"',
+        "-c",
+        'sandbox_mode="danger-full-access"',
         "--listen",
         `ws://${CODEX_APP_SERVER_HOST}:${port}`,
         "--ws-auth",
