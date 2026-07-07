@@ -2203,6 +2203,8 @@ export class CodexPtyRuntime implements CodexRuntime {
       signal: CodexThreadAnnouncementSignal;
     },
   ): void {
+    this.subscribeToLocalSharedThread(threadId);
+
     if (!this.isNativePanelMode()) {
       this.updateSharedThread(threadId, {
         source: "local",
@@ -2249,6 +2251,14 @@ export class CodexPtyRuntime implements CodexRuntime {
     }
 
     this.schedulePendingThreadAnnouncement();
+  }
+
+  private subscribeToLocalSharedThread(threadId: string): void {
+    if (this.subscribedThreadIds.has(threadId)) {
+      return;
+    }
+
+    void this.tryEnsureSharedThreadSubscribed(threadId);
   }
 
   private rememberBridgeOwnedThreadSignal(threadId: string): void {

@@ -6,6 +6,7 @@ import {
   buildCodexCliArgs,
   buildCodexUserInputRequest,
 } from "../../src/codex/codex-runtime-shared.ts";
+import { createCodexRuntime } from "../../src/codex/codex-runtime.ts";
 
 test("buildCodexCliArgs enables Codex app-server remote mode", () => {
   assert.deepEqual(
@@ -64,4 +65,43 @@ test("buildCodexUserInputRequest converts Codex tool questions", () => {
   assert.equal(request?.summary, "Codex needs more information before the tool can continue.");
   assert.equal(request?.questions[0]?.id, "choice");
   assert.equal(request?.questions[0]?.options?.[1]?.label, "Safe");
+});
+
+test("local Codex thread follow subscribes bridge client to turn events", async () => {
+  const runtime = createCodexRuntime({
+    kind: "codex",
+    command: "codex",
+    cwd: process.cwd(),
+    renderMode: "headless",
+  }) as any;
+  const requests: Array<{ method: string; params: any }> = [];
+
+  runtime.sendRpcRequest = async (method: string, params: any) => {
+    requests.push({ method, params });
+    return { thread: { id: params.threadId } };
+  };
+
+  runtime.handleRpcNotification("thread/started", {
+    thread: {
+      id: "thread_local",
+      cwd: process.cwd(),
+    },
+  });
+
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.equal(runtime.getState().sharedThreadId, "thread_local");
+  assert.deepEqual(requests, [
+    {
+      method: "thread/resume",
+      params: {
+        threadId: "thread_local",
+        cwd: process.cwd(),
+        approvalPolicy: "on-request",
+        approvalsReviewer: "user",
+        sandbox: "workspace-write",
+        excludeTurns: true,
+      },
+    },
+  ]);
 });
