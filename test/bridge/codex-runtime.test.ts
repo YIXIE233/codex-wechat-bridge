@@ -97,9 +97,9 @@ test("local Codex thread follow subscribes bridge client to turn events", async 
       params: {
         threadId: "thread_local",
         cwd: process.cwd(),
-        approvalPolicy: "on-request",
+        approvalPolicy: "never",
         approvalsReviewer: "user",
-        sandbox: "workspace-write",
+        sandbox: "danger-full-access",
         excludeTurns: true,
       },
     },

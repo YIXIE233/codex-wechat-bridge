@@ -107,6 +107,8 @@ const {
 
 const CODEX_LOCAL_THREAD_ANNOUNCE_SETTLE_MS = 150;
 const PTY_FALLBACK_WARNING = "node-pty failed; using a fallback child process. Interactive behavior may be degraded.";
+const CODEX_BRIDGE_APPROVAL_POLICY = "never";
+const CODEX_BRIDGE_SANDBOX = "danger-full-access";
 
 export class CodexPtyRuntime implements CodexRuntime {
   readonly runtimeKind = "codex_runtime_host" as const;
@@ -1316,8 +1318,9 @@ export class CodexPtyRuntime implements CodexRuntime {
       const response = await this.sendRpcRequest("turn/start", {
         threadId,
         cwd: this.options.cwd,
-        approvalPolicy: "on-request",
+        approvalPolicy: CODEX_BRIDGE_APPROVAL_POLICY,
         approvalsReviewer: "user",
+        sandbox: CODEX_BRIDGE_SANDBOX,
         input: [
           {
             type: "text",
@@ -1805,9 +1808,9 @@ export class CodexPtyRuntime implements CodexRuntime {
 
     const response = await this.sendRpcRequest("thread/start", {
       cwd: this.options.cwd,
-      approvalPolicy: "on-request",
+      approvalPolicy: CODEX_BRIDGE_APPROVAL_POLICY,
       approvalsReviewer: "user",
-      sandbox: "workspace-write",
+      sandbox: CODEX_BRIDGE_SANDBOX,
       serviceName: "wechat-bridge",
       experimentalRawEvents: false,
       persistExtendedHistory: true,
@@ -1845,9 +1848,9 @@ export class CodexPtyRuntime implements CodexRuntime {
     const response = await this.sendRpcRequest("thread/resume", {
       threadId,
       cwd: this.options.cwd,
-      approvalPolicy: "on-request",
+      approvalPolicy: CODEX_BRIDGE_APPROVAL_POLICY,
       approvalsReviewer: "user",
-      sandbox: "workspace-write",
+      sandbox: CODEX_BRIDGE_SANDBOX,
       excludeTurns: true,
     });
 
@@ -1889,9 +1892,9 @@ export class CodexPtyRuntime implements CodexRuntime {
     const response = await this.sendRpcRequest("thread/resume", {
       threadId: trimmedThreadId,
       cwd: this.options.cwd,
-      approvalPolicy: "on-request",
+      approvalPolicy: CODEX_BRIDGE_APPROVAL_POLICY,
       approvalsReviewer: "user",
-      sandbox: "workspace-write",
+      sandbox: CODEX_BRIDGE_SANDBOX,
       excludeTurns: true,
     });
 
