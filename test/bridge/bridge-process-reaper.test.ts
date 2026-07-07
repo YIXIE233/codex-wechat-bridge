@@ -34,6 +34,12 @@ test("detects Codex-only bridge command lines", () => {
     ),
     false,
   );
+  assert.equal(
+    isWechatBridgeCommandLine(
+      '/bin/sh -c cd /root/codex-wechat-bridge && /usr/local/bin/node /root/codex-wechat-bridge/bin/codex-wechat-bridge.mjs --cwd /root/qdii-nasdaq',
+    ),
+    false,
+  );
 });
 
 test("detects Codex-only daemon command lines", () => {
@@ -52,6 +58,12 @@ test("detects Codex-only daemon command lines", () => {
   assert.equal(
     isWechatDaemonCommandLine(
       '"C:\\Program Files\\nodejs\\node.exe" C:\\repo\\src\\bridge\\wechat-bridge.ts --cwd C:\\repo',
+    ),
+    false,
+  );
+  assert.equal(
+    isWechatDaemonCommandLine(
+      '/bin/bash -lc /usr/local/bin/node /root/codex-wechat-bridge/bin/codex-wechat-daemon.mjs --cwd /root/qdii-nasdaq',
     ),
     false,
   );

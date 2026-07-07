@@ -35,27 +35,46 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+function startsWithNodeInvocation(commandLine: string): boolean {
+  return /^(?:"[^"]*[\\/]node(?:\.exe)?"|'[^']*[\\/]node(?:\.exe)?'|(?:node|node\.exe|[^\s"']*[\\/]node(?:\.exe)?))(?:\s|$)/i.test(
+    commandLine,
+  );
+}
+
 export function isWechatBridgeCommandLine(commandLine: string): boolean {
+  const trimmed = commandLine.trim();
+  const nodeLaunchedBridge =
+    startsWithNodeInvocation(trimmed) &&
+    (/(?:^|[\\/])bin[\\/]codex-wechat-bridge\.mjs(?:$|[\s"'])/i.test(trimmed) ||
+      /(?:^|[\\/])bin[\\/]wechat-bridge-codex\.mjs(?:$|[\s"'])/i.test(trimmed) ||
+      /(?:^|[\\/])(?:src|dist)[\\/]bridge[\\/]wechat-bridge\.(?:ts|js)(?:$|[\s"'])/i.test(
+        trimmed,
+      ));
+
   return (
-    /(?:^|[\\/\s"'])codex-wechat-bridge(?:\.cmd|\.ps1|\.mjs)?(?:$|[\s"'])/i.test(
-      commandLine,
+    nodeLaunchedBridge ||
+    /^(?:"?[^"\s]*[\\/]?codex-wechat-bridge(?:\.cmd|\.ps1|\.mjs)"?)(?:$|[\s"'])/i.test(
+      trimmed,
     ) ||
-    /(?:^|[\\/\s"'])wechat-bridge-codex(?:\.cmd|\.ps1|\.mjs)?(?:$|[\s"'])/i.test(
-      commandLine,
-    ) ||
-    /(?:^|[\\/])(?:src|dist)[\\/]bridge[\\/]wechat-bridge\.(?:ts|js)(?:$|[\s"'])/i.test(
-      commandLine,
+    /^(?:"?[^"\s]*[\\/]?wechat-bridge-codex(?:\.cmd|\.ps1|\.mjs)"?)(?:$|[\s"'])/i.test(
+      trimmed,
     )
   );
 }
 
 export function isWechatDaemonCommandLine(commandLine: string): boolean {
+  const trimmed = commandLine.trim();
+  const nodeLaunchedDaemon =
+    startsWithNodeInvocation(trimmed) &&
+    (/(?:^|[\\/])bin[\\/]codex-wechat-daemon\.mjs(?:$|[\s"'])/i.test(trimmed) ||
+      /(?:^|[\\/])(?:src|dist)[\\/]daemon[\\/]codex-daemon\.(?:ts|js)(?:$|[\s"'])/i.test(
+        trimmed,
+      ));
+
   return (
-    /(?:^|[\\/\s"'])codex-wechat-daemon(?:\.cmd|\.ps1|\.mjs)?(?:$|[\s"'])/i.test(
-      commandLine,
-    ) ||
-    /(?:^|[\\/])(?:src|dist)[\\/]daemon[\\/]codex-daemon\.(?:ts|js)(?:$|[\s"'])/i.test(
-      commandLine,
+    nodeLaunchedDaemon ||
+    /^(?:"?[^"\s]*[\\/]?codex-wechat-daemon(?:\.cmd|\.ps1|\.mjs)"?)(?:$|[\s"'])/i.test(
+      trimmed,
     )
   );
 }
