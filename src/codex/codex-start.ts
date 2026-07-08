@@ -183,7 +183,7 @@ export function parseCliArgs(argv: string[]): CodexStartCliOptions {
       if (!next) {
         throw new Error("--cwd requires a value");
       }
-      cwd = path.resolve(next);
+      cwd = resolveCliCwd(next);
       i += 1;
       continue;
     }
@@ -229,6 +229,13 @@ export function parseCliArgs(argv: string[]): CodexStartCliOptions {
     sessionStartMode,
     cliArgs,
   };
+}
+
+function resolveCliCwd(value: string): string {
+  if (process.platform !== "win32" && /^[A-Za-z]:[\\/]/.test(value)) {
+    return value;
+  }
+  return path.resolve(value);
 }
 
 function isPidAlive(pid: number): boolean {
