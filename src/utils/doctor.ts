@@ -304,9 +304,13 @@ function appendBridgeLockLines(
     })));
     lines.push(detailField(msg("lock.detail.startup"), msg("lock.reclaimableBridgeStartup")));
   } else {
-    lines.push(row(STATE_FAIL, label, msg("lock.live")));
+    const sameWorkspace = sameWorkspacePath(lock.cwd, options.cwd);
+    lines.push(row(sameWorkspace ? STATE_OK : STATE_FAIL, label, msg("lock.live")));
     appendLockDetailLines(lines, lock);
-    lines.push(detailField(msg("lock.detail.startup"), msg("lock.liveBridgeStartup")));
+    lines.push(detailField(
+      msg("lock.detail.startup"),
+      sameWorkspace ? msg("lock.liveSameWorkspaceStartup") : msg("lock.liveBridgeStartup"),
+    ));
   }
 
   if (!sameWorkspacePath(lock.cwd, options.cwd)) {

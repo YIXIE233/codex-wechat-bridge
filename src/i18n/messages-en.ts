@@ -126,6 +126,7 @@ export const messages: Record<string, string> = {
   "doctor.lock.reclaimableBridgeStartup": "standalone bridge startup can reclaim this companion-bound or legacy lock because its parent is gone.",
   "doctor.lock.live": "live",
   "doctor.lock.liveDaemonStartup": "daemon startup will stop this single bridge before continuing.",
+  "doctor.lock.liveSameWorkspaceStartup": "this workspace bridge is already running; duplicate startup will be blocked by the lock.",
   "doctor.lock.liveBridgeStartup": "standalone bridge will fail with a lock conflict until this process exits.",
   "doctor.lock.cwdDifferent": "lock cwd differs from requested cwd ({cwd}); single-bridge lock is global.",
   "doctor.lock.adapterDifferent": "lock adapter={lockAdapter} differs from requested adapter={requestedAdapter}.",

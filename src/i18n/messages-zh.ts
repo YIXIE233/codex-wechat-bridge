@@ -126,6 +126,7 @@ export const messages: Record<string, string> = {
   "doctor.lock.reclaimableBridgeStartup": "独立桥接可回收这个父进程已退出的锁。",
   "doctor.lock.live": "运行中",
   "doctor.lock.liveDaemonStartup": "守护进程启动会先停止这个单桥接。",
+  "doctor.lock.liveSameWorkspaceStartup": "该工作区桥接已在运行；重复启动会被锁阻止。",
   "doctor.lock.liveBridgeStartup": "该进程退出前，独立桥接会因锁冲突启动失败。",
   "doctor.lock.cwdDifferent": "锁 cwd 与请求 cwd 不同 ({cwd})；单桥接锁是全局的。",
   "doctor.lock.adapterDifferent": "锁 adapter={lockAdapter} 与请求 adapter={requestedAdapter} 不同。",
