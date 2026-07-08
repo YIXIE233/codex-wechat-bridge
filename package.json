@@ -1,6 +1,6 @@
 {
   "name": "codex-wechat-bridge",
-  "version": "0.1.0-reextract",
+  "version": "0.2.0",
   "description": "Codex-only WeChat bridge extracted from CLI-WeChat-Bridge",
   "type": "module",
   "files": [
@@ -34,6 +34,7 @@
     "codex-wechat-daemon": "bin/codex-wechat-daemon.mjs",
     "codex-wechat-doctor": "bin/codex-wechat-doctor.mjs",
     "codex-wechat-mcp": "bin/codex-wechat-mcp.mjs",
+    "codex-wechat-send": "bin/codex-wechat-send.mjs",
     "codex-wechat-setup": "bin/codex-wechat-setup.mjs",
     "wechat-bridge-codex": "bin/wechat-bridge-codex.mjs",
     "wechat-codex": "bin/wechat-codex.mjs",

@@ -1475,6 +1475,7 @@ export function findRecentCodexSessionFileForCwd(
 export function listCodexResumeSessions(
   cwd: string,
   limit = 10,
+  options: { allWorkspaces?: boolean } = {},
 ): BridgeResumeSessionCandidate[] {
   const sessionsRoot = buildCodexSessionsRoot();
   if (!sessionsRoot) {
@@ -1490,7 +1491,10 @@ export function listCodexResumeSessions(
     }
 
     const meta = readCodexSessionMeta(filePath);
-    if (!meta?.cwd || normalizeComparablePath(meta.cwd) !== currentCwd) {
+    if (
+      !options.allWorkspaces &&
+      (!meta?.cwd || normalizeComparablePath(meta.cwd) !== currentCwd)
+    ) {
       continue;
     }
 

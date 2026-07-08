@@ -31,6 +31,15 @@ export type SystemCommand =
   | { type: "deny" }
   | { type: "answer"; raw: string };
 
+export type BridgeCommand =
+  | { type: "queue" }
+  | { type: "drop"; index: number }
+  | { type: "clear_queue" }
+  | { type: "steer"; raw: string }
+  | { type: "begin" }
+  | { type: "end" }
+  | { type: "cancel" };
+
 // Messages older than bridge start minus this grace window are treated as
 // pre-start backlog and skipped. The window must absorb realistic clock skew
 // between the local machine and WeChat server timestamps: with a small value,
@@ -286,6 +295,41 @@ export function parseSystemCommand(text: string): SystemCommand | null {
       return { type: "deny" };
     case "/answer":
       return argument ? { type: "answer", raw: argument } : null;
+    default:
+      return null;
+  }
+}
+
+export function parseBridgeCommand(text: string): BridgeCommand | null {
+  const trimmed = text.trim();
+  if (!trimmed.startsWith("//")) {
+    return null;
+  }
+
+  const [rawCommand, ...rest] = trimmed.split(/\s+/);
+  if (!rawCommand) {
+    return null;
+  }
+  const command = rawCommand.toLowerCase();
+  const argument = rest.join(" ").trim();
+
+  switch (command) {
+    case "//queue":
+      return { type: "queue" };
+    case "//drop": {
+      const index = Number.parseInt(argument, 10);
+      return Number.isInteger(index) && index > 0 ? { type: "drop", index } : null;
+    }
+    case "//clear-queue":
+      return { type: "clear_queue" };
+    case "//steer":
+      return argument ? { type: "steer", raw: argument } : null;
+    case "//begin":
+      return { type: "begin" };
+    case "//end":
+      return { type: "end" };
+    case "//cancel":
+      return { type: "cancel" };
     default:
       return null;
   }

@@ -213,8 +213,10 @@ export interface CodexRuntime {
   start(): Promise<void>;
   sendInput(text: string): Promise<void>;
   listResumeSessions(limit?: number): Promise<BridgeResumeSessionCandidate[]>;
+  listAllResumeSessions?(limit?: number): Promise<BridgeResumeSessionCandidate[]>;
   resumeSession(sessionId: string): Promise<void>;
   createSession?(): Promise<void>;
+  steerInput?(text: string): Promise<boolean>;
   interrupt(): Promise<boolean>;
   reset(): Promise<void>;
   resolveApproval(action: "confirm" | "deny"): Promise<boolean>;

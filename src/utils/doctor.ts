@@ -350,9 +350,6 @@ async function appendEndpointSummary(
   if (endpoint.companionStatus === "stopped" || endpoint.companionStatus === "error") {
     issues.push(msg("endpoint.issue.workerStatus", { status: endpoint.companionStatus }));
   }
-  if (lock && sameWorkspacePath(endpoint.cwd, lock.cwd) && endpoint.instanceId !== lock.instanceId) {
-    issues.push(msg("endpoint.issue.instanceMismatch"));
-  }
   const status: DoctorStatus = issues.length > 0 ? "warn" : "ok";
   lines.push(row(statusTag(status), label, msg("endpoint.summary", {
     instanceId: endpoint.instanceId,

@@ -105,3 +105,46 @@ test("local Codex thread follow subscribes bridge client to turn events", async 
     },
   ]);
 });
+
+test("Codex steer sends turn/steer for the active turn", async () => {
+  const runtime = createCodexRuntime({
+    kind: "codex",
+    command: "codex",
+    cwd: process.cwd(),
+    renderMode: "headless",
+  }) as any;
+  const requests: Array<{ method: string; params: any }> = [];
+
+  runtime.activeTurn = {
+    threadId: "thread_123",
+    turnId: "turn_456",
+    origin: "wechat",
+  };
+  runtime.sendRpcRequest = async (method: string, params: any) => {
+    requests.push({ method, params });
+    return {};
+  };
+
+  assert.equal(await runtime.steerInput("extra guidance"), true);
+  assert.deepEqual(requests, [
+    {
+      method: "turn/steer",
+      params: {
+        threadId: "thread_123",
+        expectedTurnId: "turn_456",
+        input: [{ type: "text", text: "extra guidance" }],
+      },
+    },
+  ]);
+});
+
+test("Codex steer reports false without an active turn", async () => {
+  const runtime = createCodexRuntime({
+    kind: "codex",
+    command: "codex",
+    cwd: process.cwd(),
+    renderMode: "headless",
+  });
+
+  assert.equal(await runtime.steerInput?.("extra guidance"), false);
+});

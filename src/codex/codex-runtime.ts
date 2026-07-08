@@ -304,6 +304,10 @@ export class CodexPtyRuntime implements CodexRuntime {
     return listCodexResumeSessions(this.options.cwd, limit);
   }
 
+  async listAllResumeSessions(limit = 20): Promise<BridgeResumeSessionCandidate[]> {
+    return listCodexResumeSessions(this.options.cwd, limit, { allWorkspaces: true });
+  }
+
   async resumeSession(threadId: string): Promise<void> {
     if (this.isNativePanelMode()) {
       throw new Error(
@@ -311,6 +315,27 @@ export class CodexPtyRuntime implements CodexRuntime {
       );
     }
     await this.resumeSharedThread(threadId);
+  }
+
+  async steerInput(text: string): Promise<boolean> {
+    if (!this.usesRpcTurnTransport()) {
+      return false;
+    }
+    if (!this.activeTurn) {
+      return false;
+    }
+    await this.sendRpcRequest("turn/steer", {
+      threadId: this.activeTurn.threadId,
+      expectedTurnId: this.activeTurn.turnId,
+      input: [
+        {
+          type: "text",
+          text,
+        },
+      ],
+    });
+    this.state.lastInputAt = nowIso();
+    return true;
   }
 
   async interrupt(): Promise<boolean> {

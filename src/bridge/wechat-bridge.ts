@@ -9,6 +9,7 @@ import {
 import { delay } from "../codex/codex-runtime-shared.ts";
 import { BridgeController } from "./bridge-controller.ts";
 import { forwardWechatFinalReply } from "./bridge-final-reply.ts";
+import { startBridgeInletServer, type BridgeInletSendRequest } from "./bridge-inlet.ts";
 import { reapPeerBridgeProcesses } from "./bridge-process-reaper.ts";
 import { initLocaleFromEnv } from "../i18n/index.ts";
 import { ensureWechatCredentials } from "../wechat/setup.ts";
@@ -26,6 +27,7 @@ import type {
   UserInputRequest,
 } from "./bridge-types.ts";
 import {
+  parseBridgeCommand,
   buildWechatInboundPrompt,
   buildOneTimeCode,
   formatApprovalMessage,
@@ -84,6 +86,20 @@ type ActiveTask = {
 
 type DeferredInboundMessage = {
   message: InboundWechatMessage;
+  targetThreadId?: string;
+  foreground: boolean;
+  source: "wechat" | "external";
+  createdAt: string;
+};
+
+type DraftState = {
+  startedAt: string;
+  parts: InboundWechatMessage[];
+};
+
+type PendingResumeSelection = {
+  candidates: Array<{ threadId: string; title: string; lastUpdatedAt: string }>;
+  createdAt: string;
 };
 
 type WechatSendContext =
@@ -235,15 +251,15 @@ function toPendingUserInput(request: UserInputRequest | PendingUserInputRequest)
 
 export function shouldDeferCodexInboundMessage(params: {
   status: BridgeWorkerStatus;
-  activeTurnOrigin?: BridgeTurnOrigin;
   hasPendingConfirmation: boolean;
+  hasPendingUserInput?: boolean;
   hasSystemCommand: boolean;
 }): boolean {
   return (
     !params.hasPendingConfirmation &&
+    !params.hasPendingUserInput &&
     !params.hasSystemCommand &&
-    params.activeTurnOrigin === "local" &&
-    (params.status === "busy" || params.status === "awaiting_approval")
+    params.status === "busy"
   );
 }
 
@@ -270,7 +286,7 @@ export function canDrainDeferredCodexInboundQueue(params: {
 }
 
 export function formatDeferredCodexInboundQueueMessage(queuePosition: number): string {
-  return `Queued for delivery after the current local Codex turn finishes. Queue position: ${queuePosition}.`;
+  return `Queued for delivery after the current Codex turn finishes. Queue position: ${queuePosition}.`;
 }
 
 export function isRetryableDeferredCodexDrainError(errorText: string): boolean {
@@ -453,6 +469,8 @@ async function main(): Promise<void> {
   let activeTask: ActiveTask | null = null;
   const deferredInboundMessages: DeferredInboundMessage[] = [];
   let drainingDeferredInboundMessages = false;
+  let draftState: DraftState | null = null;
+  const resumeSelectionsBySender = new Map<string, PendingResumeSelection>();
   let lastOutputAt = 0;
   let lastHeartbeatAt = 0;
   let consecutivePollFailures = 0;
@@ -559,6 +577,29 @@ async function main(): Promise<void> {
   const outputBatcher = new OutputBatcher(async (text) => {
     await queueWechatMessage(stateStore.getState().authorizedUserId, text);
   });
+  const enqueueDeferredInboundMessage = async (
+    nextMessage: InboundWechatMessage,
+    queueOptions: {
+      targetThreadId?: string;
+      foreground?: boolean;
+      source?: DeferredInboundMessage["source"];
+    } = {},
+  ): Promise<void> => {
+    deferredInboundMessages.push({
+      message: nextMessage,
+      targetThreadId: queueOptions.targetThreadId,
+      foreground: queueOptions.foreground ?? false,
+      source: queueOptions.source ?? "wechat",
+      createdAt: nowIso(),
+    });
+    stateStore.appendLog(
+      `deferred_inbound_input: source=${queueOptions.source ?? "wechat"} position=${deferredInboundMessages.length} text=${truncatePreview(nextMessage.text)}`,
+    );
+    await queueWechatMessage(
+      nextMessage.senderId,
+      formatDeferredCodexInboundQueueMessage(deferredInboundMessages.length),
+    );
+  };
   const maybeDrainDeferredInboundMessages = async (): Promise<void> => {
     if (drainingDeferredInboundMessages || !ensureRuntimeOwnership()) {
       return;
@@ -586,8 +627,18 @@ async function main(): Promise<void> {
 
     drainingDeferredInboundMessages = true;
     try {
+      const currentThreadId = codexRuntime.getState().sharedThreadId;
+      if (
+        nextDeferred.targetThreadId &&
+        nextDeferred.targetThreadId !== currentThreadId
+      ) {
+        if (!nextDeferred.foreground) {
+          throw new Error("Queued input targets a different thread without foreground switch.");
+        }
+        await codexRuntime.resumeSession(nextDeferred.targetThreadId);
+      }
       stateStore.appendLog(
-        `draining_deferred_inbound_input: remaining=${deferredInboundMessages.length} text=${truncatePreview(nextDeferred.message.text)}`,
+        `draining_deferred_inbound_input: source=${nextDeferred.source} remaining=${deferredInboundMessages.length} text=${truncatePreview(nextDeferred.message.text)}`,
       );
       const nextTask = await dispatchInboundWechatText({
         message: nextDeferred.message,
@@ -621,6 +672,93 @@ async function main(): Promise<void> {
       drainingDeferredInboundMessages = false;
     }
   };
+  const handleExternalSend = async (request: BridgeInletSendRequest) => {
+    const recipient = stateStore.getState().authorizedUserId;
+    if (!recipient) {
+      return { ok: false as const, error: "No authorized WeChat recipient is configured." };
+    }
+    const currentThreadId = codexRuntime.getState().sharedThreadId;
+    if (request.threadId && request.threadId !== currentThreadId) {
+      if (!request.foreground) {
+        return { ok: false as const, error: "Target thread differs from foreground; pass --foreground to switch." };
+      }
+      const runtimeState = codexRuntime.getState();
+      if (runtimeState.status === "busy" || runtimeState.status === "awaiting_approval" || runtimeState.status === "awaiting_input") {
+        await enqueueDeferredInboundMessage(
+          {
+            senderId: recipient,
+            sender: "external",
+            sessionId: "external",
+            text: request.text,
+            attachments: request.attachments ?? [],
+            createdAt: nowIso(),
+            createdAtMs: Date.now(),
+          },
+          {
+            source: "external",
+            targetThreadId: request.threadId,
+            foreground: true,
+          },
+        );
+        return { ok: true as const, message: "Queued for foreground switch after current turn." };
+      }
+      await codexRuntime.resumeSession(request.threadId);
+      stateStore.setSharedThreadId(request.threadId);
+    }
+
+    const message: InboundWechatMessage = {
+      senderId: recipient,
+      sender: "external",
+      sessionId: "external",
+      text: request.text,
+      attachments: request.attachments ?? [],
+      createdAt: nowIso(),
+      createdAtMs: Date.now(),
+    };
+    const nextTask = await handleInboundMessage({
+      message,
+      options,
+      stateStore,
+      codexRuntime,
+      queueWechatMessage,
+      outputBatcher,
+      deferInboundMessage: (nextMessage, queueOptions = {}) =>
+        enqueueDeferredInboundMessage(nextMessage, { ...queueOptions, source: "external" }),
+      getQueue: () => deferredInboundMessages,
+      dropQueuedMessage: (index) => {
+        if (index < 1 || index > deferredInboundMessages.length) {
+          return false;
+        }
+        deferredInboundMessages.splice(index - 1, 1);
+        return true;
+      },
+      clearQueue: () => {
+        const count = deferredInboundMessages.length;
+        deferredInboundMessages.splice(0, deferredInboundMessages.length);
+        return count;
+      },
+      getDraft: () => draftState,
+      setDraft: (draft) => {
+        draftState = draft;
+      },
+      getResumeSelection: (senderId) => resumeSelectionsBySender.get(senderId),
+      setResumeSelection: (senderId, selection) => {
+        if (selection) {
+          resumeSelectionsBySender.set(senderId, selection);
+        } else {
+          resumeSelectionsBySender.delete(senderId);
+        }
+      },
+    });
+    if (nextTask) {
+      activeTask = nextTask;
+      lastHeartbeatAt = 0;
+    }
+    syncSharedSessionState(stateStore, codexRuntime);
+    await maybeDrainDeferredInboundMessages();
+    return { ok: true as const, message: "Accepted." };
+  };
+  let closeBridgeInlet: (() => Promise<void>) | null = null;
   const startupParentPid = process.ppid;
   const attachedToTerminal = Boolean(
     process.stdin.isTTY || process.stdout.isTTY || process.stderr.isTTY,
@@ -660,6 +798,14 @@ async function main(): Promise<void> {
       await waitForPendingWechatForwardTasks();
     } catch {
       // Best effort flush.
+    }
+    try {
+      if (closeBridgeInlet) {
+        await closeBridgeInlet();
+        closeBridgeInlet = null;
+      }
+    } catch {
+      // Best effort close.
     }
     try {
       await codexRuntime.dispose();
@@ -762,6 +908,12 @@ async function main(): Promise<void> {
     stateStore.appendLog(
       `Bridge started with runtime=codex command=${options.command} cwd=${options.cwd}`,
     );
+    const inlet = await startBridgeInletServer({
+      cwd: options.cwd,
+      onSend: handleExternalSend,
+    });
+    closeBridgeInlet = inlet.close;
+    stateStore.appendLog(`bridge_inlet_started: port=${inlet.endpoint.port}`);
 
     log("Codex WeChat bridge is ready.");
     log(`Working directory: ${options.cwd}`);
@@ -774,11 +926,12 @@ async function main(): Promise<void> {
       "Codex WeChat bridge is ready.",
       `CWD: ${options.cwd}`,
       "",
-      "Commands: /stop, /confirm, /deny, /status, /new, /reset",
+      "Commands: /stop, /confirm, /deny, /answer, /status, /new, /resume, /reset",
+      "Bridge: //queue, //drop <n>, //clear-queue, //steer <text>, //begin, //end, //cancel",
       formatBindingsListMessage(listBindings()),
       "",
       "Send a message here to forward it to Codex.",
-      'Use "wechat-codex" in this directory for native Codex TUI commands such as /resume.',
+      'Use "wechat-codex" in this directory for the native Codex TUI when needed.',
     ].join("\n");
     await queueWechatMessage(credentials.userId, welcomeText);
 
@@ -857,17 +1010,31 @@ async function main(): Promise<void> {
             codexRuntime,
             queueWechatMessage,
             outputBatcher,
-            deferInboundMessage: async (nextMessage) => {
-              deferredInboundMessages.push({
-                message: nextMessage,
-              });
-              stateStore.appendLog(
-                `deferred_inbound_input: position=${deferredInboundMessages.length} text=${truncatePreview(nextMessage.text)}`,
-              );
-              await queueWechatMessage(
-                nextMessage.senderId,
-                formatDeferredCodexInboundQueueMessage(deferredInboundMessages.length),
-              );
+            deferInboundMessage: enqueueDeferredInboundMessage,
+            getQueue: () => deferredInboundMessages,
+            dropQueuedMessage: (index) => {
+              if (index < 1 || index > deferredInboundMessages.length) {
+                return false;
+              }
+              deferredInboundMessages.splice(index - 1, 1);
+              return true;
+            },
+            clearQueue: () => {
+              const count = deferredInboundMessages.length;
+              deferredInboundMessages.splice(0, deferredInboundMessages.length);
+              return count;
+            },
+            getDraft: () => draftState,
+            setDraft: (draft) => {
+              draftState = draft;
+            },
+            getResumeSelection: (senderId) => resumeSelectionsBySender.get(senderId),
+            setResumeSelection: (senderId, selection) => {
+              if (selection) {
+                resumeSelectionsBySender.set(senderId, selection);
+              } else {
+                resumeSelectionsBySender.delete(senderId);
+              }
             },
           });
         } catch (err) {
@@ -1184,6 +1351,50 @@ function formatInboundMessagePreview(message: InboundWechatMessage): string {
   return "(empty)";
 }
 
+function formatQueueReport(queue: DeferredInboundMessage[]): string {
+  if (queue.length === 0) {
+    return "Queue is empty.";
+  }
+  return [
+    `Queued messages: ${queue.length}`,
+    ...queue.map((item, index) => {
+      const target = item.targetThreadId ? ` target=${item.targetThreadId.slice(0, 12)}` : "";
+      const foreground = item.foreground ? " foreground" : "";
+      return `${index + 1}. [${item.source}${foreground}${target}] ${truncatePreview(formatInboundMessagePreview(item.message), 120)}`;
+    }),
+  ].join("\n");
+}
+
+function mergeDraftMessages(messages: InboundWechatMessage[]): InboundWechatMessage | null {
+  if (messages.length === 0) {
+    return null;
+  }
+  const first = messages[0]!;
+  const text = messages
+    .map((message) => message.text.trim())
+    .filter(Boolean)
+    .join("\n\n");
+  return {
+    ...first,
+    text,
+    attachments: messages.flatMap((message) => message.attachments),
+  };
+}
+
+function formatResumeCandidates(
+  candidates: Array<{ threadId: string; title: string; lastUpdatedAt: string }>,
+): string {
+  if (candidates.length === 0) {
+    return "No Codex threads found for resume.";
+  }
+  return [
+    "Reply with a number to resume:",
+    ...candidates.map((candidate, index) =>
+      `${index + 1}. ${candidate.threadId.slice(0, 12)} ${candidate.title} (${candidate.lastUpdatedAt})`,
+    ),
+  ].join("\n");
+}
+
 async function handleInboundMessage(params: {
   message: InboundWechatMessage;
   options: BridgeCliOptions;
@@ -1195,7 +1406,18 @@ async function handleInboundMessage(params: {
     context?: WechatSendContext,
   ) => Promise<boolean>;
   outputBatcher: OutputBatcher;
-  deferInboundMessage: (message: InboundWechatMessage) => Promise<void>;
+  deferInboundMessage: (message: InboundWechatMessage, options?: {
+    targetThreadId?: string;
+    foreground?: boolean;
+    source?: DeferredInboundMessage["source"];
+  }) => Promise<void>;
+  getQueue: () => DeferredInboundMessage[];
+  dropQueuedMessage: (index: number) => boolean;
+  clearQueue: () => number;
+  getDraft: () => DraftState | null;
+  setDraft: (draft: DraftState | null) => void;
+  getResumeSelection: (senderId: string) => PendingResumeSelection | undefined;
+  setResumeSelection: (senderId: string, selection: PendingResumeSelection | null) => void;
 }): Promise<ActiveTask | null> {
   let { message } = params;
   const {
@@ -1205,8 +1427,16 @@ async function handleInboundMessage(params: {
     queueWechatMessage,
     outputBatcher,
     deferInboundMessage,
+    getQueue,
+    dropQueuedMessage,
+    clearQueue,
+    getDraft,
+    setDraft,
+    getResumeSelection,
+    setResumeSelection,
   } = params;
   const state = stateStore.getState();
+  let forcePromptDispatch = false;
 
   if (message.senderId !== state.authorizedUserId) {
     await queueWechatMessage(
@@ -1216,45 +1446,141 @@ async function handleInboundMessage(params: {
     return null;
   }
 
-  const emojiMatch = resolveEmojiCommand(message.text);
-  if (emojiMatch) {
-    const rewritten = emojiMatch.remainder
-      ? `${emojiMatch.command} ${emojiMatch.remainder}`
-      : emojiMatch.command;
-    message = { ...message, text: rewritten };
+  const pendingResume = getResumeSelection(message.senderId);
+  if (pendingResume && /^\d+$/.test(message.text.trim())) {
+    const index = Number.parseInt(message.text.trim(), 10);
+    const candidate = pendingResume.candidates[index - 1];
+    setResumeSelection(message.senderId, null);
+    if (!candidate) {
+      await queueWechatMessage(message.senderId, "Invalid resume selection.");
+      return null;
+    }
+    const runtimeState = codexRuntime.getState();
+    if (runtimeState.status === "busy" || runtimeState.status === "awaiting_approval" || runtimeState.status === "awaiting_input") {
+      await queueWechatMessage(message.senderId, "Codex is busy. Wait for it to finish or use /stop before /resume.");
+      return null;
+    }
+    await outputBatcher.flushNow();
+    outputBatcher.clear();
+    stateStore.clearPendingConfirmation();
+    stateStore.clearPendingUserInput();
+    await codexRuntime.resumeSession(candidate.threadId);
+    stateStore.setSharedThreadId(candidate.threadId);
+    await queueWechatMessage(message.senderId, `Resumed Codex thread: ${candidate.threadId}`);
+    return null;
   }
 
-  const bindingsCmd = parseEmojiBindingsCommand(message.text);
-  if (bindingsCmd) {
-    switch (bindingsCmd.type) {
-      case "list":
-        await queueWechatMessage(message.senderId, formatBindingsListMessage(listBindings()));
-        break;
-      case "bind":
-        setBinding(bindingsCmd.emoji, bindingsCmd.command);
-        await queueWechatMessage(message.senderId, `Bound ${bindingsCmd.emoji} → ${bindingsCmd.command}`);
-        break;
-      case "unbind": {
-        const removed = removeBinding(bindingsCmd.emoji);
+  const bridgeCommand = parseBridgeCommand(message.text);
+  if (bridgeCommand) {
+    switch (bridgeCommand.type) {
+      case "queue":
+        await queueWechatMessage(message.senderId, formatQueueReport(getQueue()));
+        return null;
+      case "drop": {
+        const dropped = dropQueuedMessage(bridgeCommand.index);
         await queueWechatMessage(
           message.senderId,
-          removed ? `Unbound ${bindingsCmd.emoji}` : `No binding found for ${bindingsCmd.emoji}`,
+          dropped ? `Dropped queued message #${bridgeCommand.index}.` : `No queued message #${bridgeCommand.index}.`,
         );
+        return null;
+      }
+      case "clear_queue": {
+        const count = clearQueue();
+        await queueWechatMessage(message.senderId, `Cleared ${count} queued message(s).`);
+        return null;
+      }
+      case "steer": {
+        if (!codexRuntime.steerInput) {
+          await queueWechatMessage(message.senderId, "Codex steer is not available.");
+          return null;
+        }
+        const steered = await codexRuntime.steerInput(bridgeCommand.raw);
+        await queueWechatMessage(
+          message.senderId,
+          steered ? "Steer submitted." : "No active Codex turn to steer.",
+        );
+        return null;
+      }
+      case "begin":
+        setDraft({ startedAt: nowIso(), parts: [] });
+        await queueWechatMessage(message.senderId, "Compose mode started. Send text/files, then //end or //cancel.");
+        return null;
+      case "cancel": {
+        const hadDraft = Boolean(getDraft());
+        setDraft(null);
+        setResumeSelection(message.senderId, null);
+        await queueWechatMessage(message.senderId, hadDraft ? "Compose mode cancelled." : "Cancelled.");
+        return null;
+      }
+      case "end": {
+        const draft = getDraft();
+        if (!draft) {
+          await queueWechatMessage(message.senderId, "No active compose draft.");
+          return null;
+        }
+        setDraft(null);
+        const merged = mergeDraftMessages(draft.parts);
+        if (!merged) {
+          await queueWechatMessage(message.senderId, "Compose draft was empty.");
+          return null;
+        }
+        message = merged;
+        forcePromptDispatch = true;
         break;
       }
     }
+  } else if (message.text.trim().startsWith("//")) {
+    await queueWechatMessage(message.senderId, "Unknown or invalid bridge command.");
+    return null;
+  } else if (getDraft()) {
+    const draft = getDraft()!;
+    draft.parts.push(message);
+    await queueWechatMessage(message.senderId, `Added to compose draft. Items: ${draft.parts.length}. Send //end or //cancel.`);
     return null;
   }
 
-  if (isBindCommandPrefix(message.text)) {
-    await queueWechatMessage(message.senderId, formatBindCommandUsage());
-    return null;
-  }
+  let systemCommand: ReturnType<typeof parseWechatControlCommand> = null;
+  if (!forcePromptDispatch) {
+    const emojiMatch = resolveEmojiCommand(message.text);
+    if (emojiMatch) {
+      const rewritten = emojiMatch.remainder
+        ? `${emojiMatch.command} ${emojiMatch.remainder}`
+        : emojiMatch.command;
+      message = { ...message, text: rewritten };
+    }
 
-  const systemCommand = parseWechatControlCommand(message.text, {
-    hasPendingConfirmation: Boolean(state.pendingConfirmation),
-    hasPendingUserInput: Boolean(state.pendingUserInput),
-  });
+    const bindingsCmd = parseEmojiBindingsCommand(message.text);
+    if (bindingsCmd) {
+      switch (bindingsCmd.type) {
+        case "list":
+          await queueWechatMessage(message.senderId, formatBindingsListMessage(listBindings()));
+          break;
+        case "bind":
+          setBinding(bindingsCmd.emoji, bindingsCmd.command);
+          await queueWechatMessage(message.senderId, `Bound ${bindingsCmd.emoji} → ${bindingsCmd.command}`);
+          break;
+        case "unbind": {
+          const removed = removeBinding(bindingsCmd.emoji);
+          await queueWechatMessage(
+            message.senderId,
+            removed ? `Unbound ${bindingsCmd.emoji}` : `No binding found for ${bindingsCmd.emoji}`,
+          );
+          break;
+        }
+      }
+      return null;
+    }
+
+    if (isBindCommandPrefix(message.text)) {
+      await queueWechatMessage(message.senderId, formatBindCommandUsage());
+      return null;
+    }
+
+    systemCommand = parseWechatControlCommand(message.text, {
+      hasPendingConfirmation: Boolean(state.pendingConfirmation),
+      hasPendingUserInput: Boolean(state.pendingUserInput),
+    });
+  }
 
   switch (systemCommand?.type) {
     case "status":
@@ -1264,10 +1590,48 @@ async function handleInboundMessage(params: {
       );
       return null;
     case "resume": {
-      await queueWechatMessage(
-        message.senderId,
-        "WeChat /resume is disabled. Use /resume inside Codex; the bridge follows the active Codex thread.",
-      );
+      const runtimeState = codexRuntime.getState();
+      if (runtimeState.status === "busy" || runtimeState.status === "awaiting_approval" || runtimeState.status === "awaiting_input") {
+        await queueWechatMessage(message.senderId, "Codex is busy. Wait for it to finish or use /stop before /resume.");
+        return null;
+      }
+
+      if (systemCommand.target) {
+        if (systemCommand.target === "--all") {
+          const candidates = (codexRuntime.listAllResumeSessions ?? codexRuntime.listResumeSessions).call(codexRuntime, 20);
+          const resolvedCandidates = await candidates;
+          const normalized = resolvedCandidates
+            .filter((candidate) => candidate.threadId)
+            .map((candidate) => ({
+              threadId: candidate.threadId!,
+              title: candidate.title,
+              lastUpdatedAt: candidate.lastUpdatedAt,
+            }));
+          setResumeSelection(message.senderId, { candidates: normalized, createdAt: nowIso() });
+          await queueWechatMessage(message.senderId, formatResumeCandidates(normalized));
+          return null;
+        }
+
+        await outputBatcher.flushNow();
+        outputBatcher.clear();
+        stateStore.clearPendingConfirmation();
+        stateStore.clearPendingUserInput();
+        await codexRuntime.resumeSession(systemCommand.target);
+        stateStore.setSharedThreadId(systemCommand.target);
+        await queueWechatMessage(message.senderId, `Resumed Codex thread: ${systemCommand.target}`);
+        return null;
+      }
+
+      const candidates = await codexRuntime.listResumeSessions(10);
+      const normalized = candidates
+        .filter((candidate) => candidate.threadId)
+        .map((candidate) => ({
+          threadId: candidate.threadId!,
+          title: candidate.title,
+          lastUpdatedAt: candidate.lastUpdatedAt,
+        }));
+      setResumeSelection(message.senderId, { candidates: normalized, createdAt: nowIso() });
+      await queueWechatMessage(message.senderId, formatResumeCandidates(normalized));
       return null;
     }
     case "new_session": {
@@ -1400,8 +1764,8 @@ async function handleInboundMessage(params: {
   if (
     shouldDeferCodexInboundMessage({
       status: codexRuntimeState.status,
-      activeTurnOrigin: codexRuntimeState.activeTurnOrigin,
       hasPendingConfirmation: Boolean(state.pendingConfirmation),
+      hasPendingUserInput: Boolean(state.pendingUserInput),
       hasSystemCommand: Boolean(systemCommand),
     })
   ) {
@@ -1409,15 +1773,23 @@ async function handleInboundMessage(params: {
     return null;
   }
 
-  if (codexRuntimeState.status === "busy") {
-    if (codexRuntimeState.activeTurnOrigin === "local") {
-      await queueWechatMessage(
-        message.senderId,
-        "Codex is currently busy with a local terminal turn. Wait for it to finish or use /stop.",
-      );
-      return null;
-    }
+  if (codexRuntimeState.status === "awaiting_approval") {
+    await queueWechatMessage(
+      message.senderId,
+      "Codex is waiting for approval. Reply /confirm or /deny, or use /stop.",
+    );
+    return null;
+  }
 
+  if (codexRuntimeState.status === "awaiting_input") {
+    await queueWechatMessage(
+      message.senderId,
+      "Codex is waiting for input. Reply /answer <text>, or use /stop.",
+    );
+    return null;
+  }
+
+  if (codexRuntimeState.status === "busy") {
     await queueWechatMessage(
       message.senderId,
       "Codex is still working. Wait for the current reply or use /stop.",

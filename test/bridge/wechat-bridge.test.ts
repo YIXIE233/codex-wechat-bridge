@@ -3,8 +3,10 @@ import assert from "node:assert/strict";
 import path from "node:path";
 
 import {
+  canDrainDeferredCodexInboundQueue,
   formatUserFacingInboundError,
   parseCliArgs,
+  shouldDeferCodexInboundMessage,
   shouldForwardBridgeEventToWechat,
 } from "../../src/bridge/wechat-bridge.ts";
 
@@ -41,5 +43,71 @@ test("formatUserFacingInboundError keeps bridge error prefix", () => {
       errorText: "boom",
     }),
     "Bridge error: boom",
+  );
+});
+
+test("generalized queue defers ordinary busy Codex input regardless of origin", () => {
+  assert.equal(
+    shouldDeferCodexInboundMessage({
+      status: "busy",
+      hasPendingConfirmation: false,
+      hasPendingUserInput: false,
+      hasSystemCommand: false,
+    }),
+    true,
+  );
+  assert.equal(
+    shouldDeferCodexInboundMessage({
+      status: "idle",
+      hasPendingConfirmation: false,
+      hasPendingUserInput: false,
+      hasSystemCommand: false,
+    }),
+    false,
+  );
+  assert.equal(
+    shouldDeferCodexInboundMessage({
+      status: "busy",
+      hasPendingConfirmation: false,
+      hasPendingUserInput: false,
+      hasSystemCommand: true,
+    }),
+    false,
+  );
+  assert.equal(
+    shouldDeferCodexInboundMessage({
+      status: "busy",
+      hasPendingConfirmation: true,
+      hasPendingUserInput: false,
+      hasSystemCommand: false,
+    }),
+    false,
+  );
+});
+
+test("deferred queue drains only when Codex is idle and no prompt is pending", () => {
+  assert.equal(
+    canDrainDeferredCodexInboundQueue({
+      deferredCount: 1,
+      status: "idle",
+      activeTurnId: undefined,
+      hasPendingConfirmation: false,
+      hasPendingUserInput: false,
+      hasPendingApproval: false,
+      hasActiveTask: false,
+    }),
+    true,
+  );
+  assert.equal(
+    canDrainDeferredCodexInboundQueue({
+      deferredCount: 1,
+      status: "busy",
+      activeTurnId: "turn",
+      hasPendingConfirmation: false,
+      hasPendingUserInput: false,
+      hasPendingApproval: false,
+      hasActiveTask: false,
+    }),
+    false,
   );
 });

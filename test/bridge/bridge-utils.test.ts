@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 
 import {
   buildWechatInboundPrompt,
+  parseBridgeCommand,
   parseSystemCommand,
   parseWechatFinalReply,
 } from "../../src/bridge/bridge-utils.ts";
@@ -18,6 +19,18 @@ test("parseSystemCommand keeps Codex WeChat command mapping", () => {
     type: "resume",
     target: "thread_123",
   });
+});
+
+test("parseBridgeCommand keeps bridge-only commands under double slash", () => {
+  assert.deepEqual(parseBridgeCommand("//queue"), { type: "queue" });
+  assert.deepEqual(parseBridgeCommand("//drop 2"), { type: "drop", index: 2 });
+  assert.deepEqual(parseBridgeCommand("//clear-queue"), { type: "clear_queue" });
+  assert.deepEqual(parseBridgeCommand("//steer add context"), { type: "steer", raw: "add context" });
+  assert.deepEqual(parseBridgeCommand("//begin"), { type: "begin" });
+  assert.deepEqual(parseBridgeCommand("//end"), { type: "end" });
+  assert.deepEqual(parseBridgeCommand("//cancel"), { type: "cancel" });
+  assert.equal(parseBridgeCommand("/status"), null);
+  assert.equal(parseBridgeCommand("//drop nope"), null);
 });
 
 test("buildWechatInboundPrompt includes local attachment paths for Codex", () => {
