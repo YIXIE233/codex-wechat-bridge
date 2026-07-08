@@ -57,7 +57,7 @@ export function parseCliArgs(argv: string[]): CodexRemoteClientCliOptions {
       if (!next) {
         throw new Error("--cwd requires a value");
       }
-      cwd = path.resolve(next);
+      cwd = resolveCliCwd(next);
       i += 1;
       continue;
     }
@@ -66,6 +66,13 @@ export function parseCliArgs(argv: string[]): CodexRemoteClientCliOptions {
   }
 
   return { cwd, cliArgs };
+}
+
+function resolveCliCwd(value: string): string {
+  if (process.platform !== "win32" && /^[A-Za-z]:[\\/]/.test(value)) {
+    return value;
+  }
+  return path.resolve(value);
 }
 
 export function readCodexRuntimeEndpoint(cwd: string): LocalClientEndpoint {

@@ -909,7 +909,7 @@ function resolveWechatAttachmentPath(candidatePath: string): string | null {
     return null;
   }
 
-  if (path.isAbsolute(normalizedCandidate)) {
+  if (path.isAbsolute(normalizedCandidate) || /^[A-Za-z]:[\\/]/.test(normalizedCandidate)) {
     return path.normalize(normalizedCandidate);
   }
 
