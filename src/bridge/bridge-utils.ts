@@ -931,11 +931,14 @@ function resolveWechatAttachmentPath(candidatePath: string): string | null {
 }
 
 function normalizeWechatAttachmentCandidate(candidatePath: string): string {
-  return candidatePath
+  const cleaned = candidatePath
     .trim()
     .replace(/^`|`$/g, "")
-    .replace(/\.\s+([A-Za-z0-9]{2,8})(?=$|[?/\s])/g, ".$1")
-    .replace(/[\\/]+/g, path.sep);
+    .replace(/\.\s+([A-Za-z0-9]{2,8})(?=$|[?/\s])/g, ".$1");
+  if (/^[A-Za-z]:[\\/]/.test(cleaned)) {
+    return cleaned;
+  }
+  return cleaned.replace(/[\\/]+/g, path.sep);
 }
 
 function inferInlineWechatAttachmentKind(filePath: string): WechatAttachmentKind | null {
