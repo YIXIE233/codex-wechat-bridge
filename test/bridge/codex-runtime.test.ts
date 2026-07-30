@@ -148,3 +148,21 @@ test("Codex steer reports false without an active turn", async () => {
 
   assert.equal(await runtime.steerInput?.("extra guidance"), false);
 });
+
+test("Codex recovers busy state when no turn is active", () => {
+  const runtime = createCodexRuntime({
+    kind: "codex",
+    command: "codex",
+    cwd: process.cwd(),
+    renderMode: "headless",
+  }) as any;
+  const events: any[] = [];
+
+  runtime.state.status = "busy";
+  runtime.setEventSink((event: any) => events.push(event));
+
+  assert.equal(runtime.recoverStaleState(), true);
+  assert.equal(runtime.getState().status, "idle");
+  assert.equal(events.at(-1)?.type, "task_complete");
+  assert.equal(runtime.recoverStaleState(), false);
+});

@@ -1446,6 +1446,8 @@ async function handleInboundMessage(params: {
     return null;
   }
 
+  codexRuntime.recoverStaleState();
+
   const pendingResume = getResumeSelection(message.senderId);
   if (pendingResume && /^\d+$/.test(message.text.trim())) {
     const index = Number.parseInt(message.text.trim(), 10);

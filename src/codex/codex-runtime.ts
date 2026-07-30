@@ -357,6 +357,10 @@ export class CodexPtyRuntime implements CodexRuntime {
     return true;
   }
 
+  recoverStaleState(): boolean {
+    return this.recoverStaleBusyStateIfNeeded();
+  }
+
   async resolveApproval(action: "confirm" | "deny"): Promise<boolean> {
     if (!this.pendingApproval && this.pendingApprovalRequests.length === 0) {
       return false;
@@ -2016,7 +2020,7 @@ export class CodexPtyRuntime implements CodexRuntime {
     this.interruptTimer = null;
   }
 
-  private recoverStaleBusyStateIfNeeded(): void {
+  private recoverStaleBusyStateIfNeeded(): boolean {
     if (
       !shouldRecoverCodexStaleBusyState({
         status: this.state.status,
@@ -2027,7 +2031,7 @@ export class CodexPtyRuntime implements CodexRuntime {
         activeTurnId: this.state.activeTurnId,
       })
     ) {
-      return;
+      return false;
     }
 
     this.pendingTurnStart = false;
@@ -2037,6 +2041,12 @@ export class CodexPtyRuntime implements CodexRuntime {
     this.state.activeTurnOrigin = undefined;
     this.clearInterruptTimer();
     this.setStatus("idle", "Recovered stale busy state.");
+    this.emit({
+      type: "task_complete",
+      summary: "Recovered stale busy state.",
+      timestamp: nowIso(),
+    });
+    return true;
   }
 
   private recoverStaleActiveTurnStateIfNeeded(): void {

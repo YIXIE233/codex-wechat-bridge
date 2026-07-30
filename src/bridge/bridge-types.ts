@@ -218,6 +218,7 @@ export interface CodexRuntime {
   createSession?(): Promise<void>;
   steerInput?(text: string): Promise<boolean>;
   interrupt(): Promise<boolean>;
+  recoverStaleState(): boolean;
   reset(): Promise<void>;
   resolveApproval(action: "confirm" | "deny"): Promise<boolean>;
   resolveAllApprovals(action: "confirm" | "deny"): Promise<number>;
