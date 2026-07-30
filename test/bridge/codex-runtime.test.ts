@@ -166,3 +166,24 @@ test("Codex recovers busy state when no turn is active", () => {
   assert.equal(events.at(-1)?.type, "task_complete");
   assert.equal(runtime.recoverStaleState(), false);
 });
+
+test("Codex ignores late events for completed turns", () => {
+  const runtime = createCodexRuntime({
+    kind: "codex",
+    command: "codex",
+    cwd: process.cwd(),
+    renderMode: "headless",
+  }) as any;
+
+  runtime.state.status = "idle";
+  runtime.sharedThreadId = "thread_local";
+  runtime.rememberCompletedTurn("turn_done");
+  runtime.handleRpcNotification("item/completed", {
+    threadId: "thread_local",
+    turnId: "turn_done",
+    item: { type: "agentMessage", text: "late" },
+  });
+
+  assert.equal(runtime.getState().status, "idle");
+  assert.equal(runtime.activeTurn, null);
+});

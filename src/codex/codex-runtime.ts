@@ -2550,6 +2550,10 @@ export class CodexPtyRuntime implements CodexRuntime {
       return null;
     }
 
+    if (this.hasCompletedTurn(turnId)) {
+      return null;
+    }
+
     if (this.bridgeOwnedTurnIds.has(turnId)) {
       return {
         threadId,
