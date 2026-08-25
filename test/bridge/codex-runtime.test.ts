@@ -187,3 +187,39 @@ test("Codex ignores late events for completed turns", () => {
   assert.equal(runtime.getState().status, "idle");
   assert.equal(runtime.activeTurn, null);
 });
+
+test("Codex recovers final reply from turn/completed items", () => {
+  const runtime = createCodexRuntime({
+    kind: "codex",
+    command: "codex",
+    cwd: process.cwd(),
+    renderMode: "headless",
+  }) as any;
+  const events: any[] = [];
+
+  runtime.state.status = "busy";
+  runtime.sharedThreadId = "thread_123";
+  runtime.activeTurn = {
+    threadId: "thread_123",
+    turnId: "turn_456",
+    origin: "wechat",
+  };
+  runtime.setEventSink((event: any) => events.push(event));
+
+  runtime.handleRpcNotification("turn/completed", {
+    threadId: "thread_123",
+    turn: {
+      id: "turn_456",
+      status: "completed",
+      items: [
+        { type: "agentMessage", id: "msg_1", text: "progress", phase: "commentary" },
+        { type: "agentMessage", id: "msg_2", text: "SIGNAL_V1_INLET_OK", phase: "final_answer" },
+      ],
+    },
+  });
+
+  assert.equal(runtime.getState().status, "idle");
+  assert.equal(runtime.activeTurn, null);
+  assert.equal(events.find((event) => event.type === "final_reply")?.text, "SIGNAL_V1_INLET_OK");
+  assert.equal(events.at(-1)?.type, "task_complete");
+});

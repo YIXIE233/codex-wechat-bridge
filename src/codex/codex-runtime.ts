@@ -3023,7 +3023,14 @@ export class CodexPtyRuntime implements CodexRuntime {
       turn && isRecord(turn.error) && typeof turn.error.message === "string"
         ? turn.error.message
         : this.turnErrorById.get(trackedTurn.turnId) ?? null;
-    const finalText = this.collectTurnOutput(trackedTurn.turnId);
+    const completedTurnOutput =
+      turn && Array.isArray(turn.items)
+        ? turn.items
+            .map((item) => extractCodexFinalTextFromItem(item))
+            .filter((text): text is string => Boolean(text))
+            .join("\n\n") || null
+        : null;
+    const finalText = this.collectTurnOutput(trackedTurn.turnId) ?? completedTurnOutput;
     const completedTrackedTurn =
       this.activeTurn?.turnId === trackedTurn.turnId ? this.activeTurn : trackedTurn;
     const summary =
